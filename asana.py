@@ -39,9 +39,9 @@ class AsanaAPI(object):
         if sc in [400, 401, 403, 404]:
             raise Exception('Error: HTTP Status %s: %s' % (r.status_code, error_message))
         elif sc == 500:
-            phrase = json.loads(r.text)['errors'][0]['phrase'] # 500 errors only
-            raise Exception('HTTP Status %s: %s (phrase: %s)' % \
-                (r.status_code, error_message, ph))
+            phrase = json.loads(r.text)['errors'][0]['phrase']
+            raise Exception('HTTP Status %s: %s (phrase: %s)' %
+                            (r.status_code, error_message, ph))
 
     def _handle_response(self, r):
         """Check the headers. If there is an error raise an Exception,
@@ -117,19 +117,38 @@ class AsanaAPI(object):
         return self._asana('projects/%d/tasks' % project_id)
 
     def add_project_task(self, task_id, project_id):
-        return self._asana_post('tasks/%d/addProject' % task_id, {'project': project_id})
+        return self._asana_post('tasks/%d/addProject' % task_id,
+                                {'project': project_id})
 
     def rm_project_task(self, task_id, project_id):
-        return self._asana_post('tasks/%d/removeProject' % task_id, {'project': project_id})
+        return self._asana_post('tasks/%d/removeProject' % task_id,
+                                {'project': project_id})
 
-    def update_project(self):
-        #TODO: All the things!
-        return None
+    def update_project(self, project_id, name=None, notes=None,
+                       archived=None):
+        payload = {}
+
+        if name:
+            payload['name'] = name
+
+        if notes:
+            payload['notes'] = notes
+
+        if archived:
+            payload['archived'] = archived
+
+        # TODO is if necessary?
+        if payload:
+            return self._asana_put('/projects/%d' % project_id,
+                                   {'project': project_id})
 
     def create_project(self, name, notes, workspace, archived=False):
+        #TODO check if all params are necessary
         payload = {'name': name, 'notes': notes, 'workspace': workspace}
+
         if archived:
             payload['archived': 'true']
+
         return self._asana_post('projects', payload)
 
     def add_project_to_task(self, project_id, task_id):
@@ -155,9 +174,11 @@ class AsanaAPI(object):
             raise Exception("Must provide a task_id or project_id")
 
         if task_id:
-            return self._asana_post('tasks/%d/stories' % task_id, {'text': text})
+            return self._asana_post('tasks/%d/stories' % task_id,
+                                    {'text': text})
         else:
-            return self._asana_post('projects/%d/stories' % project_id, {'text': text})
+            return self._asana_post('projects/%d/stories' % project_id,
+                                    {'text': text})
 
 
     #---- Workspaces ----#
@@ -165,6 +186,7 @@ class AsanaAPI(object):
         return self._asana('workspaces')
 
     def update_workspace(self, workspace_id, name=None):
+        # See update_project todo
         if name:
             return self_asana_put('workspaces/%d' % workspace_id, {'name': name})
 
@@ -172,9 +194,9 @@ class AsanaAPI(object):
     #---- Tasks ----#
     def create_task(self, name, workspace_id, assignee_id=None, assignee_status=None,
                     completed=False, due_on=None, followers=None, notes=None):
-        payload = self._set_task_payload(name=name, assignee_id=assignee_id or 'me', due_on=due_on,
-                                         assignee_status=assignee_status, notes=notes, 
-                                         completed=completed, followers=followers)
+        payload = self._set_task_payload(name=name, assignee_id=assignee_id or 'me',
+                                         due_on=due_on, assignee_status=assignee_status,
+                                         notes=notes, completed=completed, followers=followers)
         payload['workspace'] = workspace_id
 
         return self._asana_post('tasks', payload)
@@ -182,7 +204,7 @@ class AsanaAPI(object):
     def update_task(self, task_id, name=None, assignee_id=None, assignee_status=None,
                     completed=None, due_on=None, followers=None, notes=None):
         payload = self._set_task_payload(name=name, assignee_id=assignee_id, due_on=due_on,
-                                         assignee_status=assignee_status, notes=notes, 
+                                         assignee_status=assignee_status, notes=notes,
                                          completed=completed, followers=followers)
 
         return self._asana_put('tasks/%d' % task_id, payload)
@@ -245,7 +267,7 @@ class AsanaAPI(object):
         return self._asana('workspaces/%d/tags' % workspace_id)
 
     def get_tag_tasks(self, tag_id):
-        return self._asana('tags/%d/tasks' % tag_id)        
+        return self._asana('tags/%d/tasks' % tag_id)
 
     def add_tag(self, name, workspace_id):
         return self._asana_post('tags?workspace=%d&name=%s' % (workspace_id, name))
