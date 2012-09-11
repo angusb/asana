@@ -2,13 +2,13 @@
 
 Python wrapper for the [Asana API](http://developer.asana.com/documentation/)
 
-A work in progress. Working so far:
+A work in progress. Here's what's working so far:
 
-* Users:
+Users:
 - user_info
 - list_users
 
-* Projects:
+Projects:
 - list_projects
 - get_project
 - create_project
@@ -18,22 +18,22 @@ A work in progress. Working so far:
 - rm_project_task
 - add_project_to_task
 
-* Stories:
+Stories:
 - list_stories
 - get_story
 
-* Workspaces
+Workspaces
 - list_workspaces
 - update_workspace
 
-* Tasks:
+Tasks:
 - list_tasks
 - create_task
 - update_task
 - add_tag_task
 - rm_tag_task
 
-* Tags:
+Tags:
 - get_tags
 - get tag
 - get_tag_tasks
