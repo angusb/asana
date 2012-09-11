@@ -227,7 +227,6 @@ class AsanaAPI(object):
         if archived:
             payload['archived'] = archived
 
-        # TODO is if necessary?
         if payload:
             return self._asana_put('/projects/%d' % project_id,
                                    {'project': project_id})
@@ -256,7 +255,7 @@ class AsanaAPI(object):
             return self._asana('projects/%d/stories' % project_id)
 
     def get_story(self, story_id):
-        """Get story_id
+        """Get a story
 
         Args:
             story_id (int)
@@ -393,6 +392,14 @@ class AsanaAPI(object):
             workspace_id (int)
         """
         return self._asana('workspaces/%d/tags' % workspace_id)
+
+    def get_tag(self, tag_id):
+        """Get a tag.
+
+        Args:
+            tag_id (int)
+        """
+        return self._asana_get('tags/%d' % tag_id)
 
     def get_tag_tasks(self, tag_id):
         """Get the tasks marked with a specific tag.
