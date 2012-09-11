@@ -114,6 +114,10 @@ class AsanaAPI(object):
             dict: json response from Asana
         """
         target = "/".join([self.aurl, api_target])
+        if self.debug:
+            print "-> Putting to: %s" % target
+            print "-> Put payload:"
+            pprint(data)
 
         r = requests.put(target, auth=(self.apikey, ""), data=data)
         self._check_http_status(r)
