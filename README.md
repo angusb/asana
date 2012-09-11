@@ -1,12 +1,12 @@
-# Asana Python API
+## Asana Python API
 
 Python wrapper for the [Asana API](http://developer.asana.com/documentation/). It's a work in progress. What we have so far:
 
-Users:
+### Users:
 - user_info
 - list_users
 
-Projects:
+### Projects:
 - list_projects
 - get_project
 - create_project
@@ -16,33 +16,33 @@ Projects:
 - rm_project_task
 - add_project_to_task
 
-Stories:
+### Stories:
 - list_stories
 - get_story
 
-Workspaces
+### Workspaces
 - list_workspaces
 - update_workspace
 
-Tasks:
+### Tasks:
 - list_tasks
 - create_task
 - update_task
 - add_tag_task
 - rm_tag_task
 
-Tags:
+### Tags:
 - get_tags
 - get tag
 - get_tag_tasks
 - add_tag
 - update_tag
 
-Todo:
+### Todo:
 - Tests!
 - Egg?
 
-Sample:
+### Sample:
 
     import asana
     asana_api = asana.AsanaAPI('YourAsanaAPIKey', debug=True)
