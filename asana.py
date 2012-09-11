@@ -204,8 +204,8 @@ class AsanaAPI(object):
 
     def update_project(self, project_id, name=None, notes=None,
                        archived=None):
-        """Update a project. Asana API permits updates to name, or notes, 
-        or archived status. Note: if none of these are specified, 
+        """Update a project. Asana API permits updates to name, or notes,
+        or archived status. Note: if none of these are specified,
         None will be returned.
 
         Args:
@@ -284,24 +284,29 @@ class AsanaAPI(object):
     def update_workspace(self, workspace_id, name=None):
         # See update_project todo
         if name:
-            return self_asana_put('workspaces/%d' % workspace_id, {'name': name})
+            return self_asana_put('workspaces/%d' % workspace_id,
+                                  {'name': name})
 
     #---- Tasks ----#
     def create_task(self, name, workspace_id, assignee_id=None, notes=None,
-                    assignee_status=None, completed=False, due_on=None, followers=None):
-        payload = self._set_task_payload(name=name, assignee_id=assignee_id or 'me',
-                                         due_on=due_on, assignee_status=assignee_status,
-                                         notes=notes, completed=completed, followers=followers)
+                    assignee_status=None, completed=False, due_on=None,
+                    followers=None):
         payload['workspace'] = workspace_id
-
+        payload = self._set_task_payload(name=name, due_on=due_on,
+                                         notes=notes, completed=completed,
+                                         assignee_id=assignee_id or 'me',
+                                         assignee_status=assignee_status,
+                                         followers=followers)
         return self._asana_post('tasks', payload)
 
-    def update_task(self, task_id, name=None, assignee_id=None, assignee_status=None,
-                    completed=None, due_on=None, followers=None, notes=None):
-        payload = self._set_task_payload(name=name, assignee_id=assignee_id, due_on=due_on,
-                                         assignee_status=assignee_status, notes=notes,
-                                         completed=completed, followers=followers)
-
+    def update_task(self, task_id, name=None, assignee_id=None, notes=None,
+                    assignee_status=None, completed=None, due_on=None,
+                    followers=None):
+        payload = self._set_task_payload(name=name, due_on=due_on,
+                                         notes=notes, completed=completed,
+                                         assignee_id=assignee_id,
+                                         assignee_status=assignee_status,
+                                         followers=followers)
         return self._asana_put('tasks/%d' % task_id, payload)
 
     def list_tasks(self, project_id=None, workspace_id=None, assignee_id='me'):
@@ -344,10 +349,12 @@ class AsanaAPI(object):
             task_id (int)
             tag_id (int)
         """
-        return self._asana_post('tasks/%d/removeTag' % task_id, {'tag': tag_id})
+        return self._asana_post('tasks/%d/removeTag' % task_id,
+                                {'tag': tag_id})
 
-    def _set_task_payload(self, name=None, assignee_id=None, assignee_status=None,
-                          completed=False, due_on=None, followers=None, notes=None):
+    def _set_task_payload(self, name=None, assignee_id=None, notes=None,
+                          assignee_status=None, completed=None, due_on=None,
+                          followers=None):
         payload = {}
         if name:
             payload['name'] = name
@@ -360,7 +367,7 @@ class AsanaAPI(object):
         elif assignee_status:
             raise Exception('Bad task assignee status')
 
-        if completed is not None:
+        if completed:
             payload['completed'] = completed
 
         if due_on:
