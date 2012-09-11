@@ -1,8 +1,6 @@
 # Asana Python API
 
-Python wrapper for the [Asana API](http://developer.asana.com/documentation/)
-
-A work in progress. Here's what's working so far:
+Python wrapper for the [Asana API](http://developer.asana.com/documentation/). It's a work in progress. What we have so far:
 
 Users:
 - user_info
