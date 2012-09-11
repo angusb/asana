@@ -1,37 +1,48 @@
-# Asana python api & CLI
-https://github.com/pandemicsyn/asana/
+# Asana Python API
 
-python wrapper for the [Asana API](http://asana.com) and a sample CLI tool for [Asana](http://asana.com) itself.
+Python wrapper for the [Asana API](http://developer.asana.com/documentation/)
 
 A work in progress. Working so far:
 
-- get_user_info
+* Users:
+- user_info
 - list_users
-- list_tasks
-- get_task
+
+* Projects:
 - list_projects
 - get_project
-- get_project_tasks
-- list_stories
-- get_story
-- list_workspaces
-- create_task
-- update_task
 - create_project
-- update_project*
-- update_workspace*
+- update_project
+- get_project_tasks
 - add_project_task
 - rm_project_task
-- add_story
-- get_tags
-- get_tag_tasks
-- add_tag_task
 - add_project_to_task
 
-Todo:
+* Stories:
+- list_stories
+- get_story
 
-- All the things!
-- Especially error and response checkings.
+* Workspaces
+- list_workspaces
+- update_workspace
+
+* Tasks:
+- list_tasks
+- create_task
+- update_task
+- add_tag_task
+- rm_tag_task
+
+* Tags:
+- get_tags
+- get tag
+- get_tag_tasks
+- add_tag
+- update_tag
+
+Todo:
+- Tests!
+- Egg?
 
 Sample:
 
