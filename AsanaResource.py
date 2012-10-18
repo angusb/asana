@@ -1,11 +1,14 @@
+"""
+An API wrapper for the Asana API. 
+
+Official documentation can be found here: http://developer.asana.com/documentation/
+"""
+
 import ConfigParser
 import requests
 import datetime
+import json
 
-try:
-    import simplejson as json
-except ImportError:
-    import json
 from pprint import pprint
 
 class AsanaError(Exception): pass
@@ -52,15 +55,15 @@ class AsanaResource(object):
 
         error_message = json.loads(r.text)['errors'][0]['message']
         if sc in [400, 401, 403, 404, 429]:
-            raise Exception('Error: HTTP Status %s: %s' %
+            raise AsanaError('Error: HTTP Status %s: %s' %
                             (r.status_code, error_message))
         elif sc == 500:
             phrase = json.loads(r.text)['errors'][0]['phrase']
-            raise Exception('HTTP Status %s: %s (phrase: %s)' %
+            raise AsanaError('HTTP Status %s: %s (phrase: %s)' %
                             (r.status_code, error_message, ph))
 
     def _handle_response(self, r):
-        """Check the headers. If there is an error raise an Exception,
+        """Check the headers. If there is an error raise an AsanaError,
         otherwise return the data.
 
         Args:
@@ -72,7 +75,7 @@ class AsanaResource(object):
         if r.headers['content-type'].split(';')[0] == 'application/json':
             return json.loads(r.text)['data']
         else:
-            raise Exception('Did not receive json from api: %s' % str(r))    
+            raise AsanaError('Did not receive json from api: %s' % str(r))
 
     def get(self, endpoint="", use_resource=True):
         """Submits a get to the Asana API and returns the result. If
@@ -192,7 +195,7 @@ class Task(AsanaResource):
             jr = self.get(task_id)
         elif workspace_id:
             merged_post_params = dict([('workspace', workspace_id)] +
-                                      kwargs.items())
+                                      kwargs.items()) # TODO: what about bad kwargs?
             jr = self.post(data=merged_post_params)
 
         date_frmtr = lambda d: self._utcstr_to_datetime(d) if d else None
@@ -208,6 +211,7 @@ class Task(AsanaResource):
         self._due_on = jr['due_on']
         self._tags = jr['tags']
         self._projects = jr['projects']
+        self._workspace = None
 
     id = property(lambda self: self._id)
     name = property(lambda self: self._name)
@@ -232,8 +236,10 @@ class Task(AsanaResource):
 
     @property
     def workspace(self):
-        jr = self.get(self._id)
-        return Workspace(jr['workspace']['id'])
+        if not self._workspace:
+            jr = self.get(self._id)
+            self._workspace = Workspace(jr['workspace']['id'])
+        return self._workspace
 
     @property
     def assignee(self):
@@ -262,10 +268,7 @@ class Task(AsanaResource):
     @property
     def tags(self):
         jr = self.get('%s/tags' % self._id)
-        if jr:
-            return [Tag(elt['id']) for elt in jr]
-        else:
-            return []
+        return [Tag(elt['id']) for elt in jr]
 
     @assignee.setter
     def assignee(self, user):
@@ -351,34 +354,66 @@ class Workspace(AsanaResource):
         self.put(self._id, {'name': name})
         self._name = name
 
+class Tags(AsanaResource):
+    def __init__(self, workspace_id=None):
+        super(Tags, self).__init__()
+
+        if workspace_id:
+            endpoint = 'workspaces/%s/tags' % workspace_id
+            jr = self.get(endpoint=endpoint, use_resource=False)
+        else:
+            jr = self.get()
+
+        self._tags = [Tag(elt['id']) for elt in jr]
+
+    tags = property(lambda self: self._tags)
+
+    @property
+    def resource(self):
+        return 'tags'
+
 class Tag(AsanaResource):
-    def __init__(self, workspace_id=None, name=None, tag_id=None):
+    def __init__(self,
+                 tag_id=None,
+                 workspace_id=None,
+                 name=None,
+                 notes=None):
         super(Tag, self).__init__()
 
-        # Create a tag, or return an existing tag. The constructor parameters
-        # specifically determine what is allowable
-        if workspace_id and name and not tag_id:
-            jr = self.post(data={'workspace': workspace_id, 'name': name})
-        elif tag_id and not workspace_id and not name:
+        if (workspace_id and tag_id) or (tag_id and (name or notes)):
+            raise AsanaError('Bad Arguments.')
+        elif tag_id:
             jr = self.get(tag_id)
-        else:
-            raise AsanaError("Bad Arguments")
+        elif workspace_id:
+            payload = {'workspace': workspace_id}
+            if name:
+                payload['name'] = name
+            if notes:
+                payload['notes'] = notes
+            jr = self.post(data=payload)
 
         self._id = jr['id']
         self._name = jr['name']
         self._notes = jr['notes']
         self._created_at = self._utcstr_to_datetime(jr['created_at'])
+        self._workspace = None
 
     # Concisely define trivial getters
     id = property(lambda self: self._id)
     name = property(lambda self: self._name)
     notes = property(lambda self: self._notes)
-    workspace = property(lambda self: self._workspace)
     created_at = property(lambda self: self._created_at)
 
     @property
     def resource(self):
         return 'tags'
+
+    @property
+    def workspace(self):
+        if not self._workspace:
+            jr = self.get(self._id)
+            self._workspace = Workspace(jr['workspace']['id'])
+        return self._workspace
 
     @property
     def followers(self):
@@ -402,6 +437,87 @@ class Tag(AsanaResource):
         self.put(self._id, {'notes': notes})
         self._notes = notes
 
+class Project(AsanaResource):
+    def __init__(self,
+                 project_id=None,
+                 workspace_id=None,
+                 name=None,
+                 notes=None,
+                 archived=False): # Should archived be in the constructor? probably not..?
+        super(Project, self).__init__()
+
+        if project_id and workspace_id:
+            raise AsanaError('Bad Arguments')
+        elif project_id and (name or notes or archived):
+            raise AsanaError('Bad Arguments')
+        elif project_id:
+            jr = self.get(project_id)
+        elif workspace_id:
+            payload = {'workspace': workspace_id}
+            if name:
+                payload['name'] = name
+            if notes:
+                payload['notes'] = notes
+
+            jr = self.post(data=payload)
+
+        self._id = jr['id']
+        self._name = jr['name']
+        self._notes = jr['notes']
+        self._archived = jr['archived']
+        self._created_at = self._utcstr_to_datetime(jr['created_at'])
+        self._modified_at = self._utcstr_to_datetime(jr['modified_at'])
+        self._workspace = None
+
+    id = property(lambda self: self._id)
+    name = property(lambda self: self._name)
+    notes = property(lambda self: self._notes)
+    archived = property(lambda self: self._archived)
+    created_at = property(lambda self: self._created_at)
+    modified_at = property(lambda self: self._modified_at)
+
+    @property
+    def resource(self):
+        return 'projects'
+
+    @property
+    def workspace(self):
+        """Workspace can never be changed, nor should we expect
+        it to change. Compute on the fly and cache for further calls"""
+        if not self._workspace:
+            jr = self.get(self._id)
+            self._workspace = Workspace(jr['workspace']['id'])
+        return self._workspace
+
+    @property
+    def tasks(self):
+        jr = self.get('%s/tasks' % self._id)
+        return [Task(elt['id']) for elt in jr]
+
+    @property
+    def followers(self):
+        jr = self.get(self._id)
+        return [User(elt['id']) for elt in jr['followers']]
+
+    @archived.setter
+    def archived(self, archived):
+        self.put(self._id, {'archived': archived})
+        self._archived = archived
+
+    @name.setter
+    def name(self, name):
+        self.put(self._id, {'name': name})
+        self._name = name
+
+    @notes.setter
+    def notes(self, notes):
+        self.put(self._id, {'notes': notes})
+        self._notes = notes
+        print self.tasks
+
+
+
+
 #u = User()
 #User.users()
 #u.users()
@@ -412,10 +528,10 @@ class Tag(AsanaResource):
 # w = Workspace(151953184165)
 # w.name = 'EECS'
 
-import pdb
-pdb.set_trace()
-task = Task(workspace_id=151953184165)
-print task.id
+# import pdb
+# pdb.set_trace()
+# task = Task(workspace_id=151953184165)
+# print task.id
 
 # t = Tag(workspace_id=151953184165, name='yolo')
 # print t.id
