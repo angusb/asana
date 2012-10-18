@@ -174,39 +174,40 @@ class User(AsanaResource):
     @property
     def workspaces(self):
         jr = self.get(self._id)
-        return Workspace(elt['id']) for elt in jr]
+        return [Workspace(elt['id']) for elt in jr]
 
 class Task(AsanaResource):
     def __init__(self,
                  task_id=None, 
-                 workspace_id=None):
-        super(Tasks, self).__init__()
+                 workspace_id=None,
+                 **kwargs):
+        super(Task, self).__init__()
 
-        # Create a task, or return an existing task
-        # if workspace_id and name:
-        #     jr = self.post({'workspace': workspace_id, 'name': name})
-        # elif tag_id:
-        #     jr = self.get(tag_id)
-        # else:
-        #     raise Exception("Bad constructor arguments.")
-        jr = {}
+        if task_id and workspace_id:
+            raise AsanaError('Bad arguments') #TODO more revealing error
+        elif task_id and kwargs:
+            raise AsanaError('Bad arguments')
+
+        if task_id:
+            jr = self.get(task_id)
+        elif workspace_id:
+            merged_post_params = dict([('workspace', workspace_id)] +
+                                      kwargs.items())
+            jr = self.post(data=merged_post_params)
+
         date_frmtr = lambda d: self._utcstr_to_datetime(d) if d else None
 
         self._id = jr['id']
         self._name = jr['name']
-        self._assignee = jr['assignee']
-        self._assignee_status = jr['assignee_status']
-        self._parent = jr['parent']
         self._notes = jr['notes']
+        self._assignee_status = jr['assignee_status']
         self._created_at = self._utcstr_to_datetime(jr['created_at'])
         self._modified_at = self._utcstr_to_datetime(jr['modified_at'])
         self._completed_at = date_frmtr(jr['completed_at'])
         self._completed = jr['completed']
         self._due_on = jr['due_on']
-        self._followers = jr['followers']
         self._tags = jr['tags']
         self._projects = jr['projects']
-        self._workspace = jr['workspace']
 
     id = property(lambda self: self._id)
     name = property(lambda self: self._name)
@@ -222,50 +223,67 @@ class Task(AsanaResource):
         return 'tasks'
 
     @property
-    def parent(self):
-        if type(self._parent) == User: # TODO: serve the cached copy, right?
-            return self._parent
-        elif self._parent:
-            self._parent = User(self._parent['id'])
-
-        return self._parent
-
-    @property
-    def followers(self):
-        self._followers = [User(elt['id']) for elt in self._followers]
-        return self._followers
-
-    @property
-    def projects(self):
-        self._projects = [Project(elt['id']) for elt in self._projects]
-        return self._projects
+    def parent(self): # TODO
+        jr = self.get(self._id)
+        if jr['parent']:
+            return User(jr['parent']['id'])
+        else:
+            return None
 
     @property
     def workspace(self):
-        self._workspace = Workspace(self._workspace['id'])
-        return self._workspace
+        jr = self.get(self._id)
+        return Workspace(jr['workspace']['id'])
 
     @property
     def assignee(self):
-        if self._assignee:
-            self._assignee = User(self.assignee['id'])
-        return self._assignee
+        jr = self.get(self._id)
+        if jr['assignee']:
+            return User(jr['assignee']['id'])
+        else:
+            return None
+
+    @property
+    def followers(self):
+        jr = self.get(self._id)
+        if jr['followers']:
+            return [User(elt['id']) for elt in jr['followers']]
+        else:
+            return []
+
+    @property
+    def projects(self):
+        jr = self.get(self._id)
+        if jr['projects']:
+            return [Project(elt['id']) for elt in jr['projects']]
+        else:
+            return []
+
+    @property
+    def tags(self):
+        jr = self.get('%s/tags' % self._id)
+        if jr:
+            return [Tag(elt['id']) for elt in jr]
+        else:
+            return []
 
     @assignee.setter
     def assignee(self, user):
         try:
             user_id = user.id
         except AttributeError: 
-            raise Exception("Requires a User object.", user)
+            raise AsanaError("Requires a User object.", user)
 
-        if type(user) != User:
-            self.put(self._id, {'assignee': user.id})
-            self._assignee = user
+        self.put(self._id, {'assignee': user_id})
+        self.assignee = user # TODO: deepcopy?
 
     @assignee_status.setter
     def assignee_status(self, status):
-        if status not in ['upcoming', 'inbox', 'later', 'today', 'upcoming']:
-            raise Exception('Invalid status.') #TODO more specific Exception exhibiting options?
+        ok_status = ['upcoming', 'inbox', 'later', 'today', 'upcoming']
+        if status not in ok_status:
+            s = ','.join(ok_status)
+            raise AsanaError('Status must be one of the following:' + s)
+
         self.put(self._id, {'status': status})
         self._assignee_status = status
 
@@ -295,7 +313,7 @@ class Task(AsanaResource):
             self.post('%d/addTag' % tag, {'tag': tag.id})
             self._tags.append(tag)
         else:
-            raise AsanaError("'tag' must be of type int, str, or Tag")
+            raise AsanaError("Requires a int, str, or Tag object")
 
     def _remove_tag_helper(self, tag_id, arr):
         self._tags = filter(lambda x: True if x.id == tag_id else False, arr)
@@ -308,10 +326,11 @@ class Task(AsanaResource):
             self.post('%d/removeTag' % tag.id, {'tag': tag.id})
             _remove_tag_helper(tag.id, self._tags)
         else:
-            raise AsanaError("'tag' must be of type int, str, or Tag")
+            raise AsanaError("Requires a int, str, or Tag object")
 
     def bulk_update(self, **kwargs):
-        pass 
+        payload = {}
+        pass
 
 class Workspace(AsanaResource):
     def __init__(self, workspace_id):
@@ -365,13 +384,13 @@ class Tag(AsanaResource):
     def followers(self):
         """Return a list of all Users following this Tag"""
         jr = self.get(self._id)
-        return [User(elt['id']) for elt in jr]
+        return [User(elt['id']) for elt in jr['followers']]
 
     @property
     def tasks(self):
-        """Return a list of all Tasks objects with this Tag applied"""
+        """Return a list of all Tasks objects associated with this tag"""
         jr = self.get("/".join([self._id, 'tasks']))
-        return [Tag(elt['id'] for elt in jr)]
+        return [Tag(elt['id'] for elt in jr['tasks'])]
 
     @name.setter
     def name(self, name):
@@ -393,10 +412,15 @@ class Tag(AsanaResource):
 # w = Workspace(151953184165)
 # w.name = 'EECS'
 
-t = Tag(workspace_id=151953184165, name='yolo')
-print t.id
-print t.followers
-print t.notes
-t.notes = "lolol"
-print t.notes
+import pdb
+pdb.set_trace()
+task = Task(workspace_id=151953184165)
+print task.id
+
+# t = Tag(workspace_id=151953184165, name='yolo')
+# print t.id
+# print t.followers
+# print t.notes
+# t.notes = "lolol"
+# print t.notes
 
