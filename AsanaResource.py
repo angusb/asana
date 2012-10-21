@@ -138,26 +138,6 @@ class AsanaResource(object):
         self._check_http_status(r)
         return self._handle_response(r)
 
-class Users(AsanaResource):
-    def __init__(self, workspace_id=None):
-        super(Users, self).__init__()
-
-        # If a workspace is specified, we must use a different resource
-        # as required by the API spec.
-        if workspace_id:
-            endpoint = 'workspaces/%s' % workspace_id
-            jr = self.get(endpoint=endpoint, use_resource=False)
-        else:
-            jr = self.get()
-
-        self._users = [User(elt['id']) for elt in jr]
-
-    users = property(lambda self: self._users)
-
-    @property
-    def resource(self):
-        return 'users'
-
 class User(AsanaResource):
     def __init__(self, user_id='me'):
         super(User, self).__init__()
@@ -335,6 +315,7 @@ class Task(AsanaResource):
         payload = {}
         pass
 
+
 class Workspace(AsanaResource):
     def __init__(self, workspace_id):
         super(Workspace, self).__init__()
@@ -349,28 +330,64 @@ class Workspace(AsanaResource):
     def resource(self):
         return 'workspaces'
 
+    @property
+    def users(self):
+        jr = self.get('%s/users' % self._id)
+        return [User(elt['id']) for elt in jr]
+
+    @property
+    def projects(self):
+        jr = self.get('%s/projects' % self._id)
+        return [Project(elt['id']) for elt in jr]
+
+    @property
+    def tags(self):
+        jr = self.get('%s/tags' % self._id)
+        return [Tag(elt['id']) for elt in jr]
+
+    @property
+    def tasks(self):
+        jr = self.get('%s/tasks' % self._id)
+        return [Task(elt['id']) for elt in jr]
+
     @name.setter
     def name(self, name):
         self.put(self._id, {'name': name})
         self._name = name
 
-class Tags(AsanaResource):
-    def __init__(self, workspace_id=None):
-        super(Tags, self).__init__()
+    def create_project(self, name=None, notes=None, archived=False):
+        return Project(workspace_id=self._id,
+                       name=name,
+                       notes=notes,
+                       archived=archived)
 
-        if workspace_id:
-            endpoint = 'workspaces/%s/tags' % workspace_id
-            jr = self.get(endpoint=endpoint, use_resource=False)
-        else:
-            jr = self.get()
+    def create_tag(self, name=None, notes=None):
+        return Tag(workspace_id=self._id,
+                   name=name,
+                   notes=notes)
 
-        self._tags = [Tag(elt['id']) for elt in jr]
+    def create_task(self, **kwargs):
+        return Task(workspace_id=self._id,
+                    kwargs=kwargs)
 
-    tags = property(lambda self: self._tags)
+    def find_user(self, name=None, email=None, return_first_match=True):
+        if name and email:
+            raise AsanaError('find_user requires a name or email, not both.')
 
-    @property
-    def resource(self):
-        return 'tags'
+        users = self.users
+        if name:
+            users = filter(lambda x: x.name == name, users)
+            if return_first_match and users:
+                return users[0]
+            else:
+                return users
+
+        users = filter(lambda x: x.email == email, users)
+        return users[0] if users else []
+
+    def find_tasks(self, user):
+        pass
+
 
 class Tag(AsanaResource):
     def __init__(self,
