@@ -250,11 +250,16 @@ class Task(AsanaResource):
         jr = self.get('%s/tags' % self._id)
         return [Tag(elt['id']) for elt in jr]
 
+    @property
+    def comments(self):
+        jr = self.get('%s/stories' % self._id)
+        return [Story(elt['id']) for elt in jr]
+
     @assignee.setter
     def assignee(self, user):
         try:
             user_id = user.id
-        except AttributeError: 
+        except AttributeError:
             raise AsanaError("Requires a User object.", user)
 
         self.put(self._id, {'assignee': user_id})
@@ -310,6 +315,11 @@ class Task(AsanaResource):
             _remove_tag_helper(tag.id, self._tags)
         else:
             raise AsanaError("Requires a int, str, or Tag object")
+
+    # TODO: results in 2 API calls. Constraining to 1 would require verbose Story constructor?
+    def add_comment(self, text):
+        jr = self.post('%s/stories' % self._id)
+        return Story(jr['id'])
 
     def bulk_update(self, **kwargs):
         payload = {}
@@ -371,7 +381,7 @@ class Workspace(AsanaResource):
                     kwargs=kwargs)
 
     def find_user(self, name=None, email=None, return_first_match=True):
-        if name and email:
+        if name and email or (not email and not name):
             raise AsanaError('find_user requires a name or email, not both.')
 
         users = self.users
@@ -379,14 +389,34 @@ class Workspace(AsanaResource):
             users = filter(lambda x: x.name == name, users)
             if return_first_match and users:
                 return users[0]
-            else:
-                return users
+
+            return users
 
         users = filter(lambda x: x.email == email, users)
         return users[0] if users else []
 
+    def find_projects(self, archived=False): # TODO redundant to searching self.projects?
+        """Returns a list of projects with an archive status of archived.
+
+        Kwargs:
+            archived (bool): defaulted to False.
+        """
+        jr = self.get('%s/projects' % self._id, {'archived': archived})
+        return [Project(elt['id']) for elt in jr]
+
     def find_tasks(self, user):
-        pass
+        """Returns a list of tasks assigned to user within this workspace.
+
+        Args:
+            user (User): assignee
+        """
+        try:
+            user_id = user.id
+        except AttributeError:
+            raise AsanaError("Requires a User object.", user)
+
+        jr = self.get('%s/tasks' % self._id, {'assignee': user.id})
+        return [User(elt['id']) for elt in jr]
 
 
 class Tag(AsanaResource):
@@ -441,7 +471,7 @@ class Tag(AsanaResource):
     @property
     def tasks(self):
         """Return a list of all Tasks objects associated with this tag"""
-        jr = self.get("/".join([self._id, 'tasks']))
+        jr = self.get('%s/tasks' % self._id)
         return [Tag(elt['id'] for elt in jr['tasks'])]
 
     @name.setter
@@ -460,7 +490,7 @@ class Project(AsanaResource):
                  workspace_id=None,
                  name=None,
                  notes=None,
-                 archived=False): # Should archived be in the constructor? probably not..?
+                 archived=None): # Should archived be in the constructor? technically, but practically?
         super(Project, self).__init__()
 
         if project_id and workspace_id:
@@ -475,6 +505,8 @@ class Project(AsanaResource):
                 payload['name'] = name
             if notes:
                 payload['notes'] = notes
+            if archived:
+                payload['archived'] = archived
 
             jr = self.post(data=payload)
 
@@ -516,6 +548,11 @@ class Project(AsanaResource):
         jr = self.get(self._id)
         return [User(elt['id']) for elt in jr['followers']]
 
+    @property
+    def comments(self):
+        jr = self.get('%s/stories' % self._id)
+        return [Story(elt['id']) for elt in jr]
+
     @archived.setter
     def archived(self, archived):
         self.put(self._id, {'archived': archived})
@@ -532,8 +569,43 @@ class Project(AsanaResource):
         self._notes = notes
         print self.tasks
 
+    # TODO: results in 2 API calls. Constraining to 1 would require verbose Story constructor?
+    def add_comment(self, text):
+        jr = self.post('%s/stories' % self._id)
+        return Story(jr['id'])
 
+class Story(AsanaResource):
+    def __init__(self, story_id):
+        super(Story, self).__init__()
+        jr = self.get(story_id)
+        self._id = jr['id']
+        self._text = jr['text']
+        self._source = jr['source']
+        self._story_type = jr['type']
+        self._created_at = self._utcstr_to_datetime(jr['created_at'])
 
+    id = property(lambda self: self._id)
+    text = property(lambda self: self._text)
+    source = property(lambda self: self._source)
+    story_type = property(lambda self: self._story_type)
+    created_at = property(lambda self: self._created_at)
+
+    @property
+    def resource(self):
+        return 'stories'
+
+    @property
+    def created_by(self):
+        jr = self.get(self._id)
+        return User(jr['created_by']['id'])
+
+    # TODO: what's a good interface for the caller? Ideally, he doesn't want to have to test types...
+    @property
+    def target(self):
+        """Returns the object that this story is associated with. May be a
+        task or project.
+        """
+        pass # TODO
 
 #u = User()
 #User.users()
