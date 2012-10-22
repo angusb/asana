@@ -163,11 +163,14 @@ class Task(AsanaResource):
     def __init__(self,
                  task_id=None, 
                  workspace_id=None,
+                 parent_id=None,
                  **kwargs):
         super(Task, self).__init__()
 
-        if task_id and workspace_id:
-            raise AsanaError('Bad arguments') #TODO more revealing error
+        if (task_id and workspace_id) or \
+           (workspace_id and task_id) or \
+           (task_id and parent_id):
+            raise AsanaError('A Task must be created with exactly one of task_id, workspace_id, or parent_id') #TODO: pep8
         elif task_id and kwargs:
             raise AsanaError('Bad arguments')
 
@@ -207,7 +210,7 @@ class Task(AsanaResource):
         return 'tasks'
 
     @property
-    def parent(self): # TODO
+    def parent(self):
         jr = self.get(self._id)
         if jr['parent']:
             return User(jr['parent']['id'])
@@ -216,10 +219,8 @@ class Task(AsanaResource):
 
     @property
     def workspace(self):
-        if not self._workspace:
-            jr = self.get(self._id)
-            self._workspace = Workspace(jr['workspace']['id'])
-        return self._workspace
+        jr = self.get(self._id)
+        return Workspace(jr['workspace']['id'])
 
     @property
     def assignee(self):
@@ -251,6 +252,11 @@ class Task(AsanaResource):
         return [Tag(elt['id']) for elt in jr]
 
     @property
+    def subtasks(self):
+        jr = self.get('%s/subtasks' % self._id)
+        return [Task(elt['id']) for elt in jr]
+
+    @property
     def comments(self):
         jr = self.get('%s/stories' % self._id)
         return [Story(elt['id']) for elt in jr]
@@ -263,7 +269,7 @@ class Task(AsanaResource):
             raise AsanaError("Requires a User object.", user)
 
         self.put(self._id, {'assignee': user_id})
-        self.assignee = user # TODO: deepcopy?
+        self.assignee = user
 
     @assignee_status.setter
     def assignee_status(self, status):
@@ -287,9 +293,6 @@ class Task(AsanaResource):
 
     @completed.setter
     def completed(self, status):
-        if not isinstance(status, bool): #TODO: idiomatic?
-            raise AsanaError("Assignment must be of type bool")
-
         self.put(self._id, {'completed': completed}) # TODO: check if completed needs to be json'd
         self._status = status
 
@@ -304,15 +307,15 @@ class Task(AsanaResource):
             raise AsanaError("Requires a int, str, or Tag object")
 
     def _remove_tag_helper(self, tag_id, arr):
-        self._tags = filter(lambda x: True if x.id == tag_id else False, arr)
+        return filter(lambda x: True if x.id == tag_id else False, arr)
 
     def remove_tag(self, tag):
         if isinstance(tag, int) or isinstance(tag, str):
             self.post('%d/removeTag' % tag, {'tag': tag})
-            _remove_tag_helper(int(tag), self._tags)
+            self._tags = _remove_tag_helper(int(tag), self._tags)
         elif isinstance(tag, Tag):
             self.post('%d/removeTag' % tag.id, {'tag': tag.id})
-            _remove_tag_helper(tag.id, self._tags)
+            self._tags = _remove_tag_helper(tag.id, self._tags)
         else:
             raise AsanaError("Requires a int, str, or Tag object")
 
@@ -320,6 +323,9 @@ class Task(AsanaResource):
     def add_comment(self, text):
         jr = self.post('%s/stories' % self._id)
         return Story(jr['id'])
+
+    def add_subtask(self, **kwargs):
+        return Task(parent_id=self._id, kwargs=kwargs)
 
     def bulk_update(self, **kwargs):
         payload = {}
@@ -570,6 +576,7 @@ class Project(AsanaResource):
         print self.tasks
 
     # TODO: results in 2 API calls. Constraining to 1 would require verbose Story constructor?
+    #       or should this be a void method?
     def add_comment(self, text):
         jr = self.post('%s/stories' % self._id)
         return Story(jr['id'])
