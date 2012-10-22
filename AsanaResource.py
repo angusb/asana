@@ -1,7 +1,7 @@
 """
-An API wrapper for the Asana API. 
+An API wrapper for the Asana API.
 
-Official documentation can be found here: http://developer.asana.com/documentation/
+Official documentation: http://developer.asana.com/documentation/
 """
 
 import ConfigParser
@@ -11,10 +11,13 @@ import json
 
 from pprint import pprint
 
-class AsanaError(Exception): pass
+
+class AsanaError(Exception):
+    pass
+
 
 class AsanaResource(object):
-    def __init__(self): #pass location of config file 
+    def __init__(self): # TODO: pass location of config file
         self.asana_url = "https://app.asana.com/api"
         self.api_version = "1.0"
         self.aurl = "/".join([self.asana_url, self.api_version])
@@ -35,7 +38,7 @@ class AsanaResource(object):
         """Convert a UTC formatted string to a datetime object.
 
         Args:
-            timestamp (str): UTC formatted str (e.g. '2012-02-22T02:06:58.147Z')
+            timestamp (str): UTC formatted str (e.g '2012-02-22T02:06:58.147Z')
         """
         timestamp = timestamp.replace('T', ' ').replace('Z', '')
         return datetime.datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S.%f')
@@ -96,9 +99,9 @@ class AsanaResource(object):
 
         r = requests.get(target, auth=(self.api_key, ""))
         self._check_http_status(r)
-        return self._handle_response(r)  
+        return self._handle_response(r)
 
-    def post(self, endpoint="", data=""): #TODO bad?
+    def post(self, endpoint="", data=""):
         """Submits a post to the Asana API and returns the result.
 
         Args:
@@ -138,6 +141,7 @@ class AsanaResource(object):
         self._check_http_status(r)
         return self._handle_response(r)
 
+
 class User(AsanaResource):
     def __init__(self, user_id='me'):
         super(User, self).__init__()
@@ -159,9 +163,10 @@ class User(AsanaResource):
         jr = self.get(self._id)
         return [Workspace(elt['id']) for elt in jr]
 
+
 class Task(AsanaResource):
     def __init__(self,
-                 task_id=None, 
+                 task_id=None,
                  workspace_id=None,
                  parent_id=None,
                  **kwargs):
@@ -170,15 +175,17 @@ class Task(AsanaResource):
         if (task_id and workspace_id) or \
            (workspace_id and task_id) or \
            (task_id and parent_id):
-            raise AsanaError('A Task must be created with exactly one of task_id, workspace_id, or parent_id') #TODO: pep8
+            raise AsanaError('A Task must be created with exactly one '
+                             'of task_id, workspace_id, or parent_id')
         elif task_id and kwargs:
             raise AsanaError('Bad arguments')
 
         if task_id:
             jr = self.get(task_id)
         elif workspace_id:
+            # TODO: what about bad kwargs?
             merged_post_params = dict([('workspace', workspace_id)] +
-                                      kwargs.items()) # TODO: what about bad kwargs?
+                                      kwargs.items())
             jr = self.post(data=merged_post_params)
 
         date_frmtr = lambda d: self._utcstr_to_datetime(d) if d else None
@@ -293,7 +300,8 @@ class Task(AsanaResource):
 
     @completed.setter
     def completed(self, status):
-        self.put(self._id, {'completed': completed}) # TODO: check if completed needs to be json'd
+        # TODO: check if completed needs to be json'd
+        self.put(self._id, {'completed': completed})
         self._status = status
 
     def add_tag(self, tag):
@@ -319,7 +327,8 @@ class Task(AsanaResource):
         else:
             raise AsanaError("Requires a int, str, or Tag object")
 
-    # TODO: results in 2 API calls. Constraining to 1 would require verbose Story constructor?
+    # TODO: results in 2 API calls. Constraining to 1 would require verbose
+    #       Story constructor?
     def add_comment(self, text):
         jr = self.post('%s/stories' % self._id)
         return Story(jr['id'])
@@ -401,7 +410,8 @@ class Workspace(AsanaResource):
         users = filter(lambda x: x.email == email, users)
         return users[0] if users else []
 
-    def find_projects(self, archived=False): # TODO redundant to searching self.projects?
+    # TODO redundant to searching self.projects?
+    def find_projects(self, archived=False):
         """Returns a list of projects with an archive status of archived.
 
         Kwargs:
@@ -490,6 +500,7 @@ class Tag(AsanaResource):
         self.put(self._id, {'notes': notes})
         self._notes = notes
 
+
 class Project(AsanaResource):
     def __init__(self,
                  project_id=None,
@@ -575,11 +586,12 @@ class Project(AsanaResource):
         self._notes = notes
         print self.tasks
 
-    # TODO: results in 2 API calls. Constraining to 1 would require verbose Story constructor?
-    #       or should this be a void method?
+    # TODO: results in 2 API calls. Constraining to 1 would require
+    #       verbose Story constructor or should this be a void method?
     def add_comment(self, text):
         jr = self.post('%s/stories' % self._id)
         return Story(jr['id'])
+
 
 class Story(AsanaResource):
     def __init__(self, story_id):
@@ -606,7 +618,8 @@ class Story(AsanaResource):
         jr = self.get(self._id)
         return User(jr['created_by']['id'])
 
-    # TODO: what's a good interface for the caller? Ideally, he doesn't want to have to test types...
+    # TODO: what's a good interface for the caller?
+    #       Ideally, he doesn't want to have to test types...
     @property
     def target(self):
         """Returns the object that this story is associated with. May be a
@@ -635,4 +648,3 @@ class Story(AsanaResource):
 # print t.notes
 # t.notes = "lolol"
 # print t.notes
-
