@@ -170,7 +170,8 @@ class Asana(AsanaClient):
         abs_path = os.path.abspath(config_file)
 
         try:
-            with open(abs_path) as f: pass
+            with open(abs_path) as f:
+                pass
         except IOError as e:
             raise e
 
@@ -294,17 +295,41 @@ class User(AsanaResource):
 
 
 class Task(AsanaResource):
+    """A class representing an Asana task."""
     def __init__(self,
                  api,
                  task_id=None,
                  workspace_id=None,
                  parent_id=None,
                  **kwargs):
+        """Intialize a Task object with an existing task id, or create a
+        task with a workspace id or parent task id. A task can only be
+        intialized with exactly one of these. If a parent task id or
+        workspace id is specified, named arguments can be provided to specify
+        the attributes of a Task.
+
+        Args:
+            api (Asana): the container object that will make the HTTP calls
+        Kwargs:
+            task_id (int)
+            workspace_id (int)
+            parent_id (int)
+
+            name (str): name of the task
+            notes (str): task description
+            completed (bool): whether the task is completed or not
+            due_on: TODO
+            assignee (int): user id of whom the task is assigned to
+            assignee_status (str): can be 'inbox', 'later', 'today', or 'upcoming'
+
+            Note: providing any other kwargs could result in an AsanaError
+        """
+
         self.api = api
         self.resrc = 'tasks'
 
         if (task_id and workspace_id) or \
-           (workspace_id and task_id) or \
+           (workspace_id and parent_id) or \
            (task_id and parent_id):
             raise AsanaError('A Task must be created with exactly one '
                              'of task_id, workspace_id, or parent_id')
@@ -415,7 +440,7 @@ class Task(AsanaResource):
         ok_status = ['upcoming', 'inbox', 'later', 'today', 'upcoming']
         if status not in ok_status:
             s = ','.join(ok_status)
-            raise AsanaError('Requries a status to be one of the following:' + s)
+            raise AsanaError('status must be one of {%s}' % s)
 
         self.api.put(self.resrc, self._id, {'status': status})
         self._assignee_status = status
@@ -442,9 +467,9 @@ class Task(AsanaResource):
 
         Args:
             arg (obj)
-            endpoint (str) - where we will post to
-            data (dict) - data we will post
-            datatype (str) - used to construct post data
+            endpoint (str): where we will post to
+            data (dict): data we will post
+            datatype (str): used to construct post data
         """
         if isinstance(arg, int) or isinstance(arg, str):
             self.api.post(self.resrc, endpoint, {datatype: arg})
@@ -460,8 +485,8 @@ class Task(AsanaResource):
         projects within Asana.
 
         Args:
-            project (str, int, project) - project id to add (str, int) or
-                                          Project object
+            project (str, int, project): project id to add (str, int) or
+                                         Project object
         """
         self._change_obj(project, '%s/addProject' % self._id, 'project')
 
@@ -469,8 +494,8 @@ class Task(AsanaResource):
         """Remove a project from this task.
 
         Args:
-            project (str, int, project) - project id to add (str, int) or
-                                          Project object
+            project (str, int, project): project id to add (str, int) or
+                                         Project object
         """
         self._change_obj(project, '%s/removeProject' % self._id, 'project')
 
@@ -478,7 +503,7 @@ class Task(AsanaResource):
         """Add a tag to this task. A task can have multiple tags.
 
         Args:
-            tag (str, int, Tag) - tag id to add (str, or int) or Tag object
+            tag (str, int, Tag): tag id to add (str, or int) or Tag object
         """
         self._change_obj(tag, '%s/addTag' % self._id, 'tag')
 
@@ -486,7 +511,7 @@ class Task(AsanaResource):
         """Remove a tag from this task.
 
         Args:
-            tag (str, int, Tag) - tag id to remove (str, or int) or Tag object
+            tag (str, int, Tag): tag id to remove (str, or int) or Tag object
         """
         self._change_obj(tag, '%s/removeTag' % self._id, 'tag')
 
@@ -496,7 +521,7 @@ class Task(AsanaResource):
         """Add a comment to this task.
 
         Args:
-            text (str) - comment
+            text (str): comment
         """
         jr = self.api.post(self.resrc, '%s/stories' % self._id,
                            {'text': text})
