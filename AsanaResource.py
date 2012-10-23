@@ -195,6 +195,34 @@ class Asana(AsanaClient):
         jr = self.get('tags')
         return [Tag(self, elt['id']) for elt in jr]
 
+    def find_workspace(name, first_match=True):
+        """Returns a workspace with the given name. If first_match
+        is False, return all workspaces with name (Asana doesn't enforce
+        unique workspace names).
+
+        Kwargs:
+            first_match (bool): whether to return all matches or the first one
+        """
+        workspaces = filter(lambda x: x.name == name, self.workspaces)
+        if workspaces and first_match:
+            return workspaces[0]
+
+        return workspaces
+
+    def find_tag(name, first_match=True):
+        """Returns a tags with the given name. If first_match
+        is False, return all tags with name (Asana doesn't enforce
+        unique tag names).
+
+        Kwargs:
+            first_match (bool): whether to return all matches or the first one
+        """
+        tags = filter(lambda x: x.name == name, self.tags)
+        if tags and first_match:
+            return tags[0]
+
+        return tags
+
     def User(self, user_id='me'):
         return User(self, user_id='me')
 
@@ -252,13 +280,9 @@ class User(AsanaResource):
     email = property(lambda self: self._email)
 
     @property
-    def resource(self):
-        return 'users'
-
-    @property
     def workspaces(self):
         jr = self.api.get(self.resrc, self._id)
-        return [Workspace(self.api, elt['id']) for elt in jr]
+        return [Workspace(self.api, elt['id']) for elt in jr['workspaces']]
 
 
 class Task(AsanaResource):
@@ -286,6 +310,10 @@ class Task(AsanaResource):
             merged_post_params = dict([('workspace', workspace_id)] +
                                       kwargs.items())
             jr = self.api.post(self.resrc, data=merged_post_params)
+        elif parent_id:
+            jr = self.api.post(self.resrc, '%s/subtasks' % parent_id, kwargs)
+        else:
+            raise AsanaError('Bug encountered.')
 
         date_frmtr = lambda d: self._utcstr_to_datetime(d) if d else None
 
@@ -297,7 +325,7 @@ class Task(AsanaResource):
         self._modified_at = self._utcstr_to_datetime(jr['modified_at'])
         self._completed_at = date_frmtr(jr['completed_at'])
         self._completed = jr['completed']
-        self._due_on = jr['due_on']
+        self._due_on = jr['due_on'] # TODO
         self._tags = jr['tags']
         self._projects = jr['projects']
         self._workspace = None
@@ -308,12 +336,9 @@ class Task(AsanaResource):
     created_at = property(lambda self: self._created_at)
     modified_at = property(lambda self: self._modified_at)
     completed_at = property(lambda self: self._completed_at)
+    due_on = property(lambda self: self._due_on)
     completed = property(lambda self: self._completed)
     assignee_status = property(lambda self: self._assignee_status)
-
-    @property
-    def resource(self):
-        return 'tasks'
 
     @property
     def parent(self):
@@ -398,38 +423,77 @@ class Task(AsanaResource):
         self._notes = notes
 
     @completed.setter
-    def completed(self, status):
-        # TODO: check if completed needs to be json'd
+    def completed(self, completed):
         self.api.put(self.resrc, self._id, {'completed': completed})
-        self._status = status
+        self._completed = completed
+
+    def _change_obj(self, arg, endpoint, datatype):
+        """Internal method that abstracts the addition or removal or addition
+        of tags and projects. Throws an error if arg is not of the right type,
+        otherwise makes the requested post to endpint.
+
+        Args:
+            arg (obj)
+            endpoint (str) - where we will post to
+            data (dict) - data we will post
+            datatype (str) - used to construct post data
+        """
+
+
+        if isinstance(arg, int) or isinstance(arg, str):
+            self.api.post(self.resrc, endpoint, {datatype: arg})
+        elif datatype == 'tag' and isinstance(arg, Tag):
+            self.api.post(self.resrc, endpoint, {datatype: arg.id})
+        elif datatype == 'project' and isinstance(arg, Project):
+            self.api.post(self.resrc, endpoint, {datatype: arg.id})
+        else:
+            raise AsanaError('Requires an int, str, or %s' % datatype)
+
+    def add_project(self, project):
+        """Add a project to this task. Tasks can be listed under multiple
+        projects within Asana.
+
+        Args:
+            project (str, int, project) - project id to add (str, int) or
+                                          Project object
+        """
+        self._change_obj(project, '%s/addProject' % self._id, 'project')
+
+    def remove_project(self, project):
+        """Remove a project from this task.
+
+        Args:
+            project (str, int, project) - project id to add (str, int) or
+                                          Project object
+        """
+        self._change_obj(project, '%s/removeProject' % self._id, 'project')
 
     def add_tag(self, tag):
-        if isinstance(tag, int) or isinstance(tag, str):
-            self.api.post(self.resrc, '%d/addTag' % tag, {'tag': tag})
-            self._tags.append(Tag(tag))
-        elif isinstance(tag, Tag):
-            self.api.post(self.resrc, '%d/addTag' % tag, {'tag': tag.id})
-            self._tags.append(tag)
-        else:
-            raise AsanaError("Requires a int, str, or Tag object")
+        """Add a tag to this task. A task can have multiple tags.
 
-    def _remove_tag_helper(self, tag_id, arr):
-        return filter(lambda x: True if x.id == tag_id else False, arr)
+        Args:
+            tag (str, int, Tag) - tag id to add (str, or int) or Tag object
+        """
+        self._change_obj(tag, '%s/addTag' % self._id, 'tag')
 
     def remove_tag(self, tag):
-        if isinstance(tag, int) or isinstance(tag, str):
-            self.api.post(self.resrc, '%d/removeTag' % tag, {'tag': tag})
-            self._tags = _remove_tag_helper(int(tag), self._tags)
-        elif isinstance(tag, Tag):
-            self.api.post(self.resrc, '%d/removeTag' % tag.id, {'tag': tag.id})
-            self._tags = _remove_tag_helper(tag.id, self._tags)
-        else:
-            raise AsanaError("Requires a int, str, or Tag object")
+        """Remove a tag from this task.
+
+        Args:
+            tag (str, int, Tag) - tag id to remove (str, or int) or Tag object
+        """
+        self._change_obj(tag, '%s/removeTag' % self._id, 'tag')
 
     # TODO: results in 2 API calls. Constraining to 1 would require verbose
-    #       Story constructor?
+    #       Story constructor? Also, should I return a coment object?
     def add_comment(self, text):
-        jr = self.api.post(self.resrc, '%s/stories' % self._id)
+        """Add a comment to this task.
+
+        Args:
+            text (str) - comment
+        """
+        jr = self.api.post(self.resrc, '%s/stories' % self._id,
+                           {'text': text})
         return Story(self.api, jr['id'])
 
     def add_subtask(self, **kwargs):
@@ -466,11 +530,6 @@ class Workspace(AsanaResource):
         jr = self.api.get(self.resrc, '%s/tags' % self._id)
         return [Tag(self.api, elt['id']) for elt in jr]
 
-    @property
-    def tasks(self):
-        jr = self.api.get(self.resrc, '%s/tasks' % self._id)
-        return [Task(self.api, elt['id']) for elt in jr]
-
     @name.setter
     def name(self, name):
         self.api.put(self.resrc, self._id, {'name': name})
@@ -492,14 +551,14 @@ class Workspace(AsanaResource):
     def create_task(self, **kwargs):
         return Task(self.api, workspace_id=self._id, kwargs=kwargs)
 
-    def find_user(self, name=None, email=None, return_first_match=True):
+    def find_user(self, name=None, email=None, first_match=True):
         if name and email or (not email and not name):
             raise AsanaError('find_user requires a name or email, not both.')
 
         users = self.users
         if name:
             users = filter(lambda x: x.name == name, users)
-            if return_first_match and users:
+            if first_match and users:
                 return users[0]
 
             return users
@@ -507,7 +566,7 @@ class Workspace(AsanaResource):
         users = filter(lambda x: x.email == email, users)
         return users[0] if users else []
 
-    # TODO redundant to searching self.projects?
+    # TODO redundant to searching self.projects? bad implementation?
     def find_projects(self, archived=False):
         """Returns a list of projects with an archive status of archived.
 
@@ -529,9 +588,9 @@ class Workspace(AsanaResource):
         except AttributeError:
             raise AsanaError("Requires a User object.", user)
 
-        jr = self.api.get(self.resrc, '%s/tasks' % self._id,
-                          {'assignee': user.id})
-        return [User(self.api, elt['id']) for elt in jr]
+        jr = self.api.get(self.resrc,
+                          '%s/tasks?assignee=%s' % (self._id, user_id))
+        return [Task(self.api, elt['id']) for elt in jr]
 
 
 class Tag(AsanaResource):
@@ -545,6 +604,8 @@ class Tag(AsanaResource):
         self.api = api
         self.resrc = 'tags'
 
+        if tag_id and workspace_id:
+            raise AsanaError('Requires a tag_id or workspace_id (not both).')
         if (workspace_id and tag_id) or (tag_id and (name or notes)):
             raise AsanaError('Bad Arguments.')
         elif tag_id:
@@ -600,6 +661,7 @@ class Tag(AsanaResource):
 
 
 class Project(AsanaResource):
+    """Represents projects in Asana."""
     def __init__(self,
                  api,
                  project_id=None,
@@ -644,10 +706,6 @@ class Project(AsanaResource):
     modified_at = property(lambda self: self._modified_at)
 
     @property
-    def resource(self):
-        return 'projects'
-
-    @property
     def workspace(self):
         """Workspace can never be changed, nor should we expect
         it to change. Compute on the fly and cache for further calls"""
@@ -685,7 +743,6 @@ class Project(AsanaResource):
     def notes(self, notes):
         self.api.put(self.resrc, self._id, {'notes': notes})
         self._notes = notes
-        print self.tasks
 
     # TODO: results in 2 API calls. Constraining to 1 would require
     #       verbose Story constructor or should this be a void method?
@@ -696,6 +753,10 @@ class Project(AsanaResource):
 
 
 class Story(AsanaResource):
+    """
+    Represents stories in Asana. Currently, a comment is the only
+    type of story supported by the API.
+    """
     def __init__(self, api, story_id):
         self.api = api
         self.resrc = 'stories'
@@ -728,7 +789,8 @@ class Story(AsanaResource):
 
 # api = Asana('2FRy4F9.Shtc7cEjm556j2g0Jxy0Q133', debug=True)
 # api.User()
-# ws = api.workspaces
+# workspace = api.workspaces[0]
+# print workspace.users
 
 
 #User.users()
