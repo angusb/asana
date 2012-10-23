@@ -151,25 +151,34 @@ class AsanaClient(object):
 
 
 class Asana(AsanaClient):
-    def __init__(self, api_key=None, cfg_location=None, debug=False):
+    def __init__(self, api_key=None, config_file='./asana.cfg', debug=False):
         """Creates an Asana object which is the interface to all API actions.
         A API key or a configuration file are required (not both) are required
         for intialization.
 
+        Note: you can pass in a relative path for config_file (but no ~)
+
         Kwargs:
             api_key (str): used in HTTP basic auth (as username)
-            cfg_location (str): absolute path to configuration file location
+            confi_file (str): path to configuration file location
         """
-        if api_key and cfg_location:
-            raise AsanaError('Create an instance with an API key or config '
-                             'file, not both.')
+        if api_key:
+            super(Asana, self).__init__(api_key, debug)
+            return
 
-        if cfg_location:
-            config = ConfigParser.ConfigParser()
-            config.read(cfg_location)
-            config_section = 'Asana Configuration'
-            api_key = config.get(config_section, 'api_key')
-            debug = config.getboolean(config_section, 'debug')
+        import os
+        abs_path = os.path.abspath(config_file)
+
+        try:
+            with open(abs_path) as f: pass
+        except IOError as e:
+            raise e
+
+        config = ConfigParser.ConfigParser()
+        config.read(config_file)
+        config_section = 'Asana Configuration'
+        api_key = config.get(config_section, 'api_key')
+        debug = config.getboolean(config_section, 'debug')
 
         super(Asana, self).__init__(api_key, debug)
 
