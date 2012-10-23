@@ -7,12 +7,12 @@ Official documentation: http://developer.asana.com/documentation/
 import ConfigParser
 import requests
 import datetime
-import json
 
 from pprint import pprint
 
 
 class AsanaError(Exception):
+    """Class used for throwing Asana related errors"""
     pass
 
 
@@ -33,8 +33,6 @@ class AsanaClient(object):
         timestamp = timestamp.replace('T', ' ').replace('Z', '')
         return datetime.datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S.%f')
 
-    # TODO: r.json
-
     def _check_http_status(self, r):
         """Check the status code. Raise an exception if there's an error with
         the status code and message.
@@ -46,12 +44,12 @@ class AsanaClient(object):
         if sc == 200 or sc == 201:
             return
 
-        error_message = json.loads(r.text)['errors'][0]['message']
+        error_message = r.json['errors'][0]['message']
         if sc in [400, 401, 403, 404, 429]:
             raise AsanaError('Error: HTTP Status %s: %s' %
                             (r.status_code, error_message))
         elif sc == 500:
-            phrase = json.loads(r.text)['errors'][0]['phrase']
+            phrase = r.json['errors'][0]['phrase']
             raise AsanaError('HTTP Status %s: %s (phrase: %s)' %
                             (r.status_code, error_message, ph))
 
@@ -66,7 +64,7 @@ class AsanaClient(object):
             dict: json response from Asana
         """
         if r.headers['content-type'].split(';')[0] == 'application/json':
-            return json.loads(r.text)['data']
+            return r.json['data'] # json.loads(r.text)['data']
         else:
             raise AsanaError('Did not receive json from api: %s' % str(r))
 
@@ -224,7 +222,7 @@ class Asana(AsanaClient):
         return tags
 
     def User(self, user_id='me'):
-        return User(self, user_id='me')
+        return User(self, user_id=user_id)
 
     def Workspace(self, workspace_id):
         return Workspace(self, workspace_id)
@@ -268,6 +266,7 @@ class AsanaResource(object):
 
 class User(AsanaResource):
     def __init__(self, api, user_id='me'):
+        print user_id
         self.api = api
         self.resrc = 'users'
         jr = self.api.get(self.resrc, user_id)
@@ -407,7 +406,7 @@ class Task(AsanaResource):
         ok_status = ['upcoming', 'inbox', 'later', 'today', 'upcoming']
         if status not in ok_status:
             s = ','.join(ok_status)
-            raise AsanaError('Status must be one of the following:' + s)
+            raise AsanaError('Requries a status to be one of the following:' + s)
 
         self.api.put(self.resrc, self._id, {'status': status})
         self._assignee_status = status
@@ -438,8 +437,6 @@ class Task(AsanaResource):
             data (dict) - data we will post
             datatype (str) - used to construct post data
         """
-
-
         if isinstance(arg, int) or isinstance(arg, str):
             self.api.post(self.resrc, endpoint, {datatype: arg})
         elif datatype == 'tag' and isinstance(arg, Tag):
@@ -788,7 +785,8 @@ class Story(AsanaResource):
         pass
 
 # api = Asana('2FRy4F9.Shtc7cEjm556j2g0Jxy0Q133', debug=True)
-# api.User()
+# u = api.User(user_id=151953184167)
+# print u.name
 # workspace = api.workspaces[0]
 # print workspace.users
 
