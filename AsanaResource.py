@@ -9,6 +9,7 @@ import requests
 import datetime
 
 from pprint import pprint
+# from functools import wraps
 
 
 class AsanaError(Exception):
@@ -156,7 +157,7 @@ class Asana(AsanaClient):
         A API key or a configuration file are required (not both) are required
         for intialization.
 
-        Note: you can pass in a relative path for config_file (but no ~)
+        Note: you can pass in a relative path for config_file (but no '~')
 
         Kwargs:
             api_key (str): used in HTTP basic auth (as username)
@@ -183,25 +184,46 @@ class Asana(AsanaClient):
 
         super(Asana, self).__init__(api_key, debug)
 
-    @property
-    def users(self):
-        jr = self.get('users')
-        return [User(self, elt['id']) for elt in jr]
+    def __getattr__(self, key):
+        """Instantiates an AsanaResource object or returns an AsannaResource list.
+        If an AsanaResource object is created, this serves as the *primary* way to
+        directly instantiate an Asana object. Otherwise a list of resources is returned.
 
-    @property
-    def workspaces(self):
-        jr = self.get('workspaces')
-        return [Workspace(self, elt['id']) for elt in jr]
+        Possible asana objects to create are:
+        - User
+        - Workspace
+        - Project
+        - Tag
+        - Task
+        - Story
 
-    @property
-    def projects(self):
-        jr = self.get('projects')
-        return [Project(self, elt['id']) for elt in jr]
+        Possible AsanaResources (list of a particular AsanaResource) to return:
+        - users
+        - workspaces
+        - projects
+        - tags
+        """
+        allowed_resources = [User, Workspace, Project, Tag, Task, Story]
+        resource_name_map = {x.__name__: x for x in allowed_resources}
 
-    @property
-    def tags(self):
-        jr = self.get('tags')
-        return [Tag(self, elt['id']) for elt in jr]
+        resource_collections = {
+            'users': User,
+            'workspaces': Workspace,
+            'projects': Project,
+            'tags': Tag
+        }
+
+        if key in resource_name_map:
+            # @wraps(resource_name_map[key])
+            def ctor(*args, **kwargs):
+                return resource_name_map[key](self, *args, **kwargs)
+            ctor.__doc__ = resource_name_map[key].__init__.__doc__
+            return ctor
+        elif key in resource_collections:
+            jr = self.get(key)
+            return [resource_collections[key](self, elt['id']) for elt in jr]
+
+        raise AttributeError("'Asana' instance has no attribute '%s'" % key)
 
     def find_workspace(name, first_match=True):
         """Returns a workspace with the given name. If first_match
@@ -231,18 +253,6 @@ class Asana(AsanaClient):
 
         return tags
 
-    def __getattr__(self, key):
-        """Instantiates an AsanaResource object. In other words, this
-        serves as the *primary* way to directly instantiate an Asana object."""
-        allowed_objects = [User, Workspace, Project, Tag, Task, Story]
-        names = {x.__name__: x for x in allowed_objects}
-        if key in names:
-            def ctor(*args, **kwargs): # TODO dynamially add docstring. not working
-                ctor.__doc__ = names[key].__init__.__doc__
-                return names[key](self, *args, **kwargs)
-            ctor.__doc__ = names[key].__init__.__doc__
-            return ctor
-        raise AttributeError("'Asana' instance has no attribute '%s'" % key)
 
 class AsanaResource(object):
     def _utcstr_to_datetime(self, timestamp):
@@ -256,7 +266,14 @@ class AsanaResource(object):
 
 
 class User(AsanaResource):
+    "A class representing an Asana user."""
     def __init__(self, api, user_id='me'):
+        """Instantiate a User object with an existing user id.
+
+        Kwargs:
+            user_id (int): defaulted to 'me', which returns the
+                           user corresponding to the provided API key
+        """
         self.api = api
         self.resrc = 'users'
         jr = self.api.get(self.resrc, user_id)
