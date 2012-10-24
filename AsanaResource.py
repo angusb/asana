@@ -231,37 +231,18 @@ class Asana(AsanaClient):
 
         return tags
 
-    def User(self, user_id='me'):
-        return User(self, user_id=user_id)
-
-    def Workspace(self, workspace_id):
-        return Workspace(self, workspace_id)
-
-    def Project(self,
-                project_id=None,
-                workspace_id=None,
-                name=None,
-                notes=None,
-                archived=None):
-        return Project(self, project_id, workspace_id, name, notes, archived)
-
-    def Tag(self,
-            tag_id=None,
-            workspace_id=None,
-            name=None,
-            notes=None):
-        return Tag(self, tag_id, workspace_id, name, notes)
-
-    def Task(self,
-             task_id=None,
-             workspace_id=None,
-             parent_id=None,
-             **kwargs):
-        return Task(self, task_id, workspace_id, parent_id, **kwargs)
-
-    def Story(self, story_id):
-        return Story(self, story_id)
-
+    def __getattr__(self, key):
+        """Instantiates an AsanaResource object. In other words, this
+        serves as the *primary* way to directly instantiate an Asana object."""
+        allowed_objects = [User, Workspace, Project, Tag, Task, Story]
+        names = {x.__name__: x for x in allowed_objects}
+        if key in names:
+            def ctor(*args, **kwargs): # TODO dynamially add docstring. not working
+                ctor.__doc__ = names[key].__init__.__doc__
+                return names[key](self, *args, **kwargs)
+            ctor.__doc__ = names[key].__init__.__doc__
+            return ctor
+        raise AttributeError("'Asana' instance has no attribute '%s'" % key)
 
 class AsanaResource(object):
     def _utcstr_to_datetime(self, timestamp):
@@ -276,7 +257,6 @@ class AsanaResource(object):
 
 class User(AsanaResource):
     def __init__(self, api, user_id='me'):
-        print user_id
         self.api = api
         self.resrc = 'users'
         jr = self.api.get(self.resrc, user_id)
