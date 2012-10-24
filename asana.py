@@ -1,35 +1,38 @@
+"""
+An API wrapper for the Asana API.
+
+Official documentation: http://developer.asana.com/documentation/
+"""
+
+import ConfigParser
 import requests
-import time
+import datetime
 
-try:
-    import simplejson as json
-except ImportError:
-    import json
 from pprint import pprint
+# from functools import wraps
 
 
-class AsanaAPI(object):
-    """
-    Wrapper for the Asana API. Official documentation can be found
-    here: http://developer.asana.com/documentation/
-    """
+class AsanaError(Exception):
+    """Class used for throwing Asana related errors"""
+    pass
 
-    def __init__(self, apikey, debug=False):
-        self.debug = debug
+
+class AsanaClient(object):
+    def __init__(self, api_key, debug=False):
         self.asana_url = "https://app.asana.com/api"
         self.api_version = "1.0"
         self.aurl = "/".join([self.asana_url, self.api_version])
-        self.apikey = apikey
-        self.bauth = self._get_basic_auth()
+        self.api_key = api_key
+        self.debug = debug
 
-    def _get_basic_auth(self):
-        """Get basic auth credentials.
+    def _utcstr_to_datetime(self, timestamp):
+        """Convert a UTC formatted string to a datetime object.
 
-        Returns:
-            str: basic auth string
+        Args:
+            timestamp (str): UTC formatted str (e.g '2012-02-22T02:06:58.147Z')
         """
-        s = self.apikey + ":"
-        return s.encode("base64").rstrip()
+        timestamp = timestamp.replace('T', ' ').replace('Z', '')
+        return datetime.datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S.%f')
 
     def _check_http_status(self, r):
         """Check the status code. Raise an exception if there's an error with
@@ -42,17 +45,17 @@ class AsanaAPI(object):
         if sc == 200 or sc == 201:
             return
 
-        error_message = json.loads(r.text)['errors'][0]['message']
-        if sc in [400, 401, 403, 404]:
-            raise Exception('Error: HTTP Status %s: %s' %
+        error_message = r.json['errors'][0]['message']
+        if sc in [400, 401, 403, 404, 429]:
+            raise AsanaError('Error: HTTP Status %s: %s' %
                             (r.status_code, error_message))
         elif sc == 500:
-            phrase = json.loads(r.text)['errors'][0]['phrase']
-            raise Exception('HTTP Status %s: %s (phrase: %s)' %
+            phrase = r.json['errors'][0]['phrase']
+            raise AsanaError('HTTP Status %s: %s (phrase: %s)' %
                             (r.status_code, error_message, ph))
 
     def _handle_response(self, r):
-        """Check the headers. If there is an error raise an Exception,
+        """Check the headers. If there is an error raise an AsanaError,
         otherwise return the data.
 
         Args:
@@ -62,380 +65,780 @@ class AsanaAPI(object):
             dict: json response from Asana
         """
         if r.headers['content-type'].split(';')[0] == 'application/json':
-            return json.loads(r.text)['data']
+            return r.json['data'] # json.loads(r.text)['data']
         else:
-            raise Exception('Did not receive json from api: %s' % str(r))
+            raise AsanaError('Did not receive json from api: %s' % str(r))
 
-    def _asana(self, api_target):
-        """Submits a get to the Asana API and returns the result.
+    def get(self, resource, endpoint=""):
+        """Submits a get to the Asana API for a particular resource and
+        returns the result. Uses the endpoint to further specify the
+        resource if provided.
 
         Args:
-            api_target (str): Asana API endpoint
+            resource (str)
+
+        Kwargs:
+            endpoint (str)
 
         Returns:
             dict: json response from Asana
         """
-        target = "/".join([self.aurl, api_target])
+        target = '/'.join([self.aurl, str(resource)])
+        if endpoint:
+            target = '/'.join([target, str(endpoint)])
+
         if self.debug:
             print "-> Calling: %s" % target
 
-        r = requests.get(target, auth=(self.apikey, ""))
+        r = requests.get(target, auth=(self.api_key, ""))
         self._check_http_status(r)
         return self._handle_response(r)
 
-    def _asana_post(self, api_target, data):
-        """Submits a post to the Asana API and returns the result.
+    def post(self, resource, endpoint="", data={}):
+        """Submits a post to the Asana API for a given resource and
+        returns the result. Uses the endpoint to further specify the
+        resource if provided.
 
         Args:
-            api_target (str): Asana API endpoint
+            resource (str)
+
+        Kwargs:
+            endpoint (str)
             data (dict): post data
 
         Returns:
             dict: json response from Asana
         """
-        target = "/".join([self.aurl, api_target])
+        target = '/'.join([self.aurl, str(resource)])
+        if endpoint:
+            target = '/'.join([target, str(endpoint)])
+
         if self.debug:
             print "-> Posting to: %s" % target
             print "-> Post payload:"
             pprint(data)
 
-        r = requests.post(target, auth=(self.apikey, ""), data=data)
+        r = requests.post(target, auth=(self.api_key, ""), data=data)
         self._check_http_status(r)
         return self._handle_response(r)
 
-    def _asana_put(self, api_target, data):
-        """Submits a put to the Asana API and returns the result.
+    def put(self, resource, endpoint="", data={}):
+        """Submits a put to the Asana API for a given resource and
+        returns the result. Uses the endpoint to further specify the
+        resource if provided.
 
         Args:
-            api_target (str): Asana API endpoint
-            data (dict): post data
+            resource (str):
+
+        Kwargs:
+            api_target (str)
+            data (dict): put data
 
         Returns:
             dict: json response from Asana
         """
-        target = "/".join([self.aurl, api_target])
+        target = '/'.join([self.aurl, str(resource)])
+        if endpoint:
+            target = '/'.join([target, str(endpoint)])
+
         if self.debug:
             print "-> Putting to: %s" % target
             print "-> Put payload:"
             pprint(data)
 
-        r = requests.put(target, auth=(self.apikey, ""), data=data)
+        r = requests.put(target, auth=(self.api_key, ""), data=data)
         self._check_http_status(r)
         return self._handle_response(r)
 
-    #---- Users ----#
-    def user_info(self, user_id="me"):
-        """Get user information.
+
+class Asana(AsanaClient):
+    def __init__(self, api_key=None, config_file='./asana.cfg', debug=False):
+        """Creates an Asana object which is the interface to all API actions.
+        A API key or a configuration file are required (not both) are required
+        for intialization.
+
+        Note: you can pass in a relative path for config_file (but no '~')
 
         Kwargs:
-            user_id (int): target user or self (default)
+            api_key (str): used in HTTP basic auth (as username)
+            confi_file (str): path to configuration file location
         """
-        return self._asana('users/%s' % user_id)
+        if api_key:
+            super(Asana, self).__init__(api_key, debug)
+            return
 
-    def list_users(self, workspace_id=None, filters=[]):
-        """List users. Optionally constrain users to be from a particular
-        workspace.
+        import os
+        abs_path = os.path.abspath(config_file)
+
+        try:
+            with open(abs_path) as f:
+                pass
+        except IOError as e:
+            raise e
+
+        config = ConfigParser.ConfigParser()
+        config.read(config_file)
+        config_section = 'Asana Configuration'
+        api_key = config.get(config_section, 'api_key')
+        debug = config.getboolean(config_section, 'debug')
+
+        super(Asana, self).__init__(api_key, debug)
+
+    def __getattr__(self, key):
+        """Instantiates an AsanaResource object or returns an AsannaResource list.
+        If an AsanaResource object is created, this serves as the *primary* way to
+        directly instantiate an Asana object. Otherwise a list of resources is returned.
+
+        Possible asana objects to create are:
+        - User
+        - Workspace
+        - Project
+        - Tag
+        - Task
+        - Story
+
+        Possible AsanaResources (list of a particular AsanaResource) to return:
+        - users
+        - workspaces
+        - projects
+        - tags
+        """
+        allowed_resources = [User, Workspace, Project, Tag, Task, Story]
+        resource_name_map = {x.__name__: x for x in allowed_resources}
+
+        resource_collections = {
+            'users': User,
+            'workspaces': Workspace,
+            'projects': Project,
+            'tags': Tag
+        }
+
+        if key in resource_name_map:
+            # @wraps(resource_name_map[key])
+            def ctor(*args, **kwargs):
+                return resource_name_map[key](self, *args, **kwargs)
+            ctor.__doc__ = resource_name_map[key].__init__.__doc__
+            return ctor
+        elif key in resource_collections:
+            jr = self.get(key)
+            return [resource_collections[key](self, elt['id']) for elt in jr]
+
+        raise AttributeError("'Asana' instance has no attribute '%s'" % key)
+
+    def find_workspace(name, first_match=True):
+        """Returns a workspace with the given name. If first_match
+        is False, return all workspaces with name (Asana doesn't enforce
+        unique workspace names).
 
         Kwargs:
-            workspace_id (int): users belonging to a specific workspace
-            filters (list): optional filters to apply to listing
+            first_match (bool): whether to return all matches or the first one
         """
-        if workspace_id:
-            return self._asana('workspaces/%s/users' % workspace_id)
+        workspaces = filter(lambda x: x.name == name, self.workspaces)
+        if workspaces and first_match:
+            return workspaces[0]
 
-        if filters:
-            fkeys = [x.strip().lower() for x in filters]
-            fields = ",".join(fkeys)
-            return self._asana('users?opt_fields=%s' % fields)
-        else:
-            return self._asana('users')
+        return workspaces
 
-    #---- Projects ----#
-    def list_projects(self, workspace_id=None, archived=None):
-        """List projects. Optionally constrain project listings to a
-        specified workspace or by archive status (not both). If neither
-        is specified, None is returned.
+    def find_tag(name, first_match=True):
+        """Returns a tags with the given name. If first_match
+        is False, return all tags with name (Asana doesn't enforce
+        unique tag names).
 
         Kwargs:
-            workspace_id (int): workspace to list projects from
-            archived (bool): True or False
+            first_match (bool): whether to return all matches or the first one
         """
-        if workspace_id:
-            return self._asana('projects?workspace=%d' % workspace_id)
+        tags = filter(lambda x: x.name == name, self.tags)
+        if tags and first_match:
+            return tags[0]
 
-        if archived:
-            return self._asana('projects?archived=%s' % archived)
+        return tags
 
-    def get_project(self, project_id):
-        """Get a project.
+
+class AsanaResource(object):
+    def _utcstr_to_datetime(self, timestamp):
+        """Convert a UTC formatted string to a datetime object.
 
         Args:
-            project_id (int)
+            timestamp (str): UTC formatted str (e.g '2012-02-22T02:06:58.147Z')
         """
-        return self._asana('projects/%d' % project_id)
+        timestamp = timestamp.replace('T', ' ').replace('Z', '')
+        return datetime.datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S.%f')
 
-    def get_project_tasks(self, project_id):
-        """Get the tasks part of a project.
+
+class User(AsanaResource):
+    "A class representing an Asana user."""
+    def __init__(self, api, user_id='me'):
+        """Instantiate a User object with an existing user id.
+
+        Kwargs:
+            user_id (int): defaulted to 'me', which returns the
+                           user corresponding to the provided API key
+        """
+        self.api = api
+        self.resrc = 'users'
+        jr = self.api.get(self.resrc, user_id)
+        self._name = jr['name']
+        self._email = jr['email']
+        self._id = jr['id']
+
+    id = property(lambda self: self._id)
+    name = property(lambda self: self._name)
+    email = property(lambda self: self._email)
+
+    @property
+    def workspaces(self):
+        jr = self.api.get(self.resrc, self._id)
+        return [Workspace(self.api, elt['id']) for elt in jr['workspaces']]
+
+
+class Task(AsanaResource):
+    """A class representing an Asana task."""
+    def __init__(self,
+                 api,
+                 task_id=None,
+                 workspace_id=None,
+                 parent_id=None,
+                 **kwargs):
+        """Intialize a Task object with an existing task id, or create a
+        task with a workspace id or parent task id. A task can only be
+        intialized with exactly one of these. If a parent task id or
+        workspace id is specified, named arguments can be provided to specify
+        the attributes of a Task.
 
         Args:
-            project_id (int)
-        """
-        return self._asana('projects/%d/tasks' % project_id)
-
-    def add_project_task(self, task_id, project_id):
-        """Add a task to a project.
-
-        Args:
+            api (Asana): the container object that will make the HTTP calls
+        Kwargs:
             task_id (int)
-            project_id (int)
+            workspace_id (int)
+            parent_id (int)
+
+            name (str): name of the task
+            notes (str): task description
+            completed (bool): whether the task is completed or not
+            due_on: TODO
+            assignee (int): user id of whom the task is assigned to
+            assignee_status (str): can be 'inbox', 'later', 'today', or 'upcoming'
+
+            Note: providing any other kwargs could result in an AsanaError
         """
-        return self._asana_post('tasks/%d/addProject' % task_id,
-                                {'project': project_id})
 
-    def rm_project_task(self, task_id, project_id):
-        """Remove a task from a project.
+        self.api = api
+        self.resrc = 'tasks'
 
-        Args:
-            task_id (int)
-            project_id (int)
-        """
-        return self._asana_post('tasks/%d/removeProject' % task_id,
-                                {'project': project_id})
-
-    def update_project(self, project_id, name=None, notes=None,
-                       archived=None):
-        """Update a project. Asana API permits updates to name, or notes,
-        or archived status. Note: if none of these are specified,
-        None will be returned.
-
-        Args:
-            project_id (int)
-
-        Kwags:
-            name (str): new name of project
-            notes (str): new notes of project
-            archived (bool): archive status of project
-        """
-        payload = {}
-
-        if name:
-            payload['name'] = name
-
-        if notes:
-            payload['notes'] = notes
-
-        if archived:
-            payload['archived'] = archived
-
-        if payload:
-            return self._asana_put('/projects/%d' % project_id,
-                                   {'project': project_id})
-
-    def create_project(self, name, notes, workspace, archived=False):
-        #TODO check if all params are necessary
-        payload = {'name': name, 'notes': notes, 'workspace': workspace}
-
-        if archived:
-            payload['archived': 'true']
-
-        return self._asana_post('projects', payload)
-
-    def add_project_to_task(self, project_id, task_id):
-        payload = {'project': project_id}
-        return self._asana_post('tasks/%s/addProject' % task_id, payload)
-
-    #---- Stories ----#
-    def list_stories(self, task_id=None, project_id=None):
-        if not task_id and not project_id:
-            raise Exception("Must provide a task_id or project_id")
+        if (task_id and workspace_id) or \
+           (workspace_id and parent_id) or \
+           (task_id and parent_id):
+            raise AsanaError('A Task must be created with exactly one '
+                             'of task_id, workspace_id, or parent_id')
+        elif task_id and kwargs:
+            raise AsanaError('Bad arguments')
 
         if task_id:
-            return self._asana('tasks/%d/stories' % task_id)
+            jr = self.api.get(self.resrc, task_id)
+        elif workspace_id:
+            # TODO: what about bad kwargs?
+            merged_post_params = dict([('workspace', workspace_id)] +
+                                      kwargs.items())
+            jr = self.api.post(self.resrc, data=merged_post_params)
+        elif parent_id:
+            jr = self.api.post(self.resrc, '%s/subtasks' % parent_id, kwargs)
         else:
-            return self._asana('projects/%d/stories' % project_id)
+            raise AsanaError('Bug encountered.')
 
-    def get_story(self, story_id):
-        """Get a story
+        date_frmtr = lambda d: self._utcstr_to_datetime(d) if d else None
+
+        self._id = jr['id']
+        self._name = jr['name']
+        self._notes = jr['notes']
+        self._assignee_status = jr['assignee_status']
+        self._created_at = self._utcstr_to_datetime(jr['created_at'])
+        self._modified_at = self._utcstr_to_datetime(jr['modified_at'])
+        self._completed_at = date_frmtr(jr['completed_at'])
+        self._completed = jr['completed']
+        self._due_on = jr['due_on'] # TODO
+        self._tags = jr['tags']
+        self._projects = jr['projects']
+        self._workspace = None
+
+    id = property(lambda self: self._id)
+    name = property(lambda self: self._name)
+    notes = property(lambda self: self._notes)
+    created_at = property(lambda self: self._created_at)
+    modified_at = property(lambda self: self._modified_at)
+    completed_at = property(lambda self: self._completed_at)
+    due_on = property(lambda self: self._due_on)
+    completed = property(lambda self: self._completed)
+    assignee_status = property(lambda self: self._assignee_status)
+
+    @property
+    def parent(self):
+        jr = self.api.get(self.resrc, self._id)
+        if jr['parent']:
+            return User(self.api, jr['parent']['id'])
+        else:
+            return None
+
+    @property
+    def workspace(self):
+        jr = self.api.get(self.resrc, self._id)
+        return Workspace(self.api, jr['workspace']['id'])
+
+    @property
+    def assignee(self):
+        jr = self.api.get(self.resrc, self._id)
+        if jr['assignee']:
+            return User(self.api, jr['assignee']['id'])
+        else:
+            return None
+
+    @property
+    def followers(self):
+        jr = self.api.get(self.resrc, self._id)
+        if jr['followers']:
+            return [User(self.api, elt['id']) for elt in jr['followers']]
+        else:
+            return []
+
+    @property
+    def projects(self):
+        jr = self.api.get(self.resrc, self._id)
+        if jr['projects']:
+            return [Project(self.api, elt['id']) for elt in jr['projects']]
+        else:
+            return []
+
+    @property
+    def tags(self):
+        jr = self.api.get(self.resrc, '%s/tags' % self._id)
+        return [Tag(self.api, elt['id']) for elt in jr]
+
+    @property
+    def subtasks(self):
+        jr = self.api.get(self.resrc, '%s/subtasks' % self._id)
+        return [Task(self.api, elt['id']) for elt in jr]
+
+    @property
+    def comments(self):
+        jr = self.api.get(self.resrc, '%s/stories' % self._id)
+        return [Story(self.api, elt['id']) for elt in jr]
+
+    @assignee.setter
+    def assignee(self, user):
+        try:
+            user_id = user.id
+        except AttributeError:
+            raise AsanaError("Requires a User object.", user)
+
+        self.api.put(self.resrc, self._id, {'assignee': user_id})
+        self.assignee = user
+
+    @assignee_status.setter
+    def assignee_status(self, status):
+        ok_status = ['upcoming', 'inbox', 'later', 'today', 'upcoming']
+        if status not in ok_status:
+            s = ','.join(ok_status)
+            raise AsanaError('status must be one of {%s}' % s)
+
+        self.api.put(self.resrc, self._id, {'status': status})
+        self._assignee_status = status
+
+    @name.setter
+    def name(self, name):
+        self.api.put(self.resrc, self._id, {'name': name})
+        self._name = name
+
+    @notes.setter
+    def notes(self, notes):
+        self.api.put(self.resrc, self._id, {'notes': notes})
+        self._notes = notes
+
+    @completed.setter
+    def completed(self, completed):
+        self.api.put(self.resrc, self._id, {'completed': completed})
+        self._completed = completed
+
+    def _change_obj(self, arg, endpoint, datatype):
+        """Internal method that abstracts the addition or removal or addition
+        of tags and projects. Throws an error if arg is not of the right type,
+        otherwise makes the requested post to endpint.
 
         Args:
-            story_id (int)
+            arg (obj)
+            endpoint (str): where we will post to
+            data (dict): data we will post
+            datatype (str): used to construct post data
         """
-        return self._asana('stories/%d' % story_id)
-
-    def add_story(self, text, task_id=None, project_id=None):
-        if not task_id and not project_id:
-            raise Exception("Must provide a task_id or project_id")
-
-        if task_id:
-            return self._asana_post('tasks/%d/stories' % task_id,
-                                    {'text': text})
+        if isinstance(arg, int) or isinstance(arg, str):
+            self.api.post(self.resrc, endpoint, {datatype: arg})
+        elif datatype == 'tag' and isinstance(arg, Tag):
+            self.api.post(self.resrc, endpoint, {datatype: arg.id})
+        elif datatype == 'project' and isinstance(arg, Project):
+            self.api.post(self.resrc, endpoint, {datatype: arg.id})
         else:
-            return self._asana_post('projects/%d/stories' % project_id,
-                                    {'text': text})
+            raise AsanaError('Requires an int, str, or %s' % datatype)
 
-    #---- Workspaces ----#
-    def list_workspaces(self):
-        """List workspaces. Note: lists all workspaces that the autheticated
-        user has access to.
+    def add_project(self, project):
+        """Add a project to this task. Tasks can be listed under multiple
+        projects within Asana.
+
+        Args:
+            project (str, int, project): project id to add (str, int) or
+                                         Project object
         """
-        return self._asana('workspaces')
+        self._change_obj(project, '%s/addProject' % self._id, 'project')
 
-    def update_workspace(self, workspace_id, name=None):
-        # See update_project todo
+    def remove_project(self, project):
+        """Remove a project from this task.
+
+        Args:
+            project (str, int, project): project id to add (str, int) or
+                                         Project object
+        """
+        self._change_obj(project, '%s/removeProject' % self._id, 'project')
+
+    def add_tag(self, tag):
+        """Add a tag to this task. A task can have multiple tags.
+
+        Args:
+            tag (str, int, Tag): tag id to add (str, or int) or Tag object
+        """
+        self._change_obj(tag, '%s/addTag' % self._id, 'tag')
+
+    def remove_tag(self, tag):
+        """Remove a tag from this task.
+
+        Args:
+            tag (str, int, Tag): tag id to remove (str, or int) or Tag object
+        """
+        self._change_obj(tag, '%s/removeTag' % self._id, 'tag')
+
+    # TODO: results in 2 API calls. Constraining to 1 would require verbose
+    #       Story constructor? Also, should I return a coment object?
+    def add_comment(self, text):
+        """Add a comment to this task.
+
+        Args:
+            text (str): comment
+        """
+        jr = self.api.post(self.resrc, '%s/stories' % self._id,
+                           {'text': text})
+        return Story(self.api, jr['id'])
+
+    def add_subtask(self, **kwargs):
+        return Task(self.api, parent_id=self._id, kwargs=kwargs)
+
+    def bulk_update(self, **kwargs):
+        payload = {}
+        pass
+
+
+class Workspace(AsanaResource):
+    def __init__(self, api, workspace_id):
+        self.api = api
+        self.resrc = 'workspaces'
+        jr = self.api.get(self.resrc, workspace_id)
+        self._id = jr['id']
+        self._name = jr['name']
+
+    id = property(lambda self: self._id)
+    name = property(lambda self: self._name)
+
+    @property
+    def users(self):
+        jr = self.api.get(self.resrc, '%s/users' % self._id)
+        return [User(self.api, elt['id']) for elt in jr]
+
+    @property
+    def projects(self):
+        jr = self.api.get(self.resrc, '%s/projects' % self._id)
+        return [Project(self.api, elt['id']) for elt in jr]
+
+    @property
+    def tags(self):
+        jr = self.api.get(self.resrc, '%s/tags' % self._id)
+        return [Tag(self.api, elt['id']) for elt in jr]
+
+    @name.setter
+    def name(self, name):
+        self.api.put(self.resrc, self._id, {'name': name})
+        self._name = name
+
+    def create_project(self, name=None, notes=None, archived=False):
+        return Project(self.api,
+                       workspace_id=self._id,
+                       name=name,
+                       notes=notes,
+                       archived=archived)
+
+    def create_tag(self, name=None, notes=None):
+        return Tag(self.api,
+                   workspace_id=self._id,
+                   name=name,
+                   notes=notes)
+
+    def create_task(self, **kwargs):
+        return Task(self.api, workspace_id=self._id, kwargs=kwargs)
+
+    def find_user(self, name=None, email=None, first_match=True):
+        if name and email or (not email and not name):
+            raise AsanaError('find_user requires a name or email, not both.')
+
+        users = self.users
         if name:
-            return self_asana_put('workspaces/%d' % workspace_id,
-                                  {'name': name})
+            users = filter(lambda x: x.name == name, users)
+            if first_match and users:
+                return users[0]
 
-    #---- Tasks ----#
-    def create_task(self, name, workspace_id, assignee_id=None, notes=None,
-                    assignee_status=None, completed=False, due_on=None,
-                    followers=None):
-        payload['workspace'] = workspace_id
-        payload = self._set_task_payload(name=name, due_on=due_on,
-                                         notes=notes, completed=completed,
-                                         assignee_id=assignee_id or 'me',
-                                         assignee_status=assignee_status,
-                                         followers=followers)
-        return self._asana_post('tasks', payload)
+            return users
 
-    def update_task(self, task_id, name=None, assignee_id=None, notes=None,
-                    assignee_status=None, completed=None, due_on=None,
-                    followers=None):
-        payload = self._set_task_payload(name=name, due_on=due_on,
-                                         notes=notes, completed=completed,
-                                         assignee_id=assignee_id,
-                                         assignee_status=assignee_status,
-                                         followers=followers)
-        return self._asana_put('tasks/%d' % task_id, payload)
+        users = filter(lambda x: x.email == email, users)
+        return users[0] if users else []
 
-    def list_tasks(self, project_id=None, workspace_id=None, assignee_id='me'):
-        """List tasks belonging to a project or to a workspace and user. Note:
-        if neither project_id is set nor workspace_id and assignee_id are set,
-        None will be returned.
+    # TODO redundant to searching self.projects? bad implementation?
+    def find_projects(self, archived=False):
+        """Returns a list of projects with an archive status of archived.
 
         Kwargs:
-            project_id (int)
-            workspace_id (int)
-            assignee_id (int)
+            archived (bool): defaulted to False.
         """
-        if project_id:
-            return self._asana('tasks?project=%d' % project_id)
-        else:
-            return self._asana('tasks?workspace=%d&assignee=%s' %
-                               (workspace, assignee_id))
+        jr = self.api.get(self.resrc, '%s/projects' % self._id,
+                          {'archived': archived})
+        return [Project(self.api, elt['id']) for elt in jr]
 
-    def get_task(self, task_id):
-        """Get a task.
+    def find_tasks(self, user):
+        """Returns a list of tasks assigned to user within this workspace.
 
         Args:
-            task_id (int)
+            user (User): assignee
         """
-        return self._asana("tasks/%d" % task_id)
+        try:
+            user_id = user.id
+        except AttributeError:
+            raise AsanaError("Requires a User object.", user)
 
-    def add_tag_task(self, task_id, tag_id):
-        """Add a tag to a task.
+        jr = self.api.get(self.resrc,
+                          '%s/tasks?assignee=%s' % (self._id, user_id))
+        return [Task(self.api, elt['id']) for elt in jr]
 
-        Args:
-            task_id (int)
-            tag_id (int)
+
+class Tag(AsanaResource):
+    def __init__(self,
+                 api,
+                 tag_id=None,
+                 workspace_id=None,
+                 name=None,
+                 notes=None):
+
+        self.api = api
+        self.resrc = 'tags'
+
+        if tag_id and workspace_id:
+            raise AsanaError('Requires a tag_id or workspace_id (not both).')
+        if (workspace_id and tag_id) or (tag_id and (name or notes)):
+            raise AsanaError('Bad Arguments.')
+        elif tag_id:
+            jr = self.api.get(self.resrc, tag_id)
+        elif workspace_id:
+            payload = {'workspace': workspace_id}
+            if name:
+                payload['name'] = name
+            if notes:
+                payload['notes'] = notes
+            jr = self.api.post(self.resrc, data=payload)
+
+        self._id = jr['id']
+        self._name = jr['name']
+        self._notes = jr['notes']
+        self._created_at = self._utcstr_to_datetime(jr['created_at'])
+        self._workspace = None
+
+    # Concisely define trivial getters
+    id = property(lambda self: self._id)
+    name = property(lambda self: self._name)
+    notes = property(lambda self: self._notes)
+    created_at = property(lambda self: self._created_at)
+
+    @property
+    def workspace(self):
+        if not self._workspace:
+            jr = self.api.get(self.resrc, self._id)
+            self._workspace = Workspace(self.api, jr['workspace']['id'])
+        return self._workspace
+
+    @property
+    def followers(self):
+        """Return a list of all Users following this Tag"""
+        jr = self.api.get(self.resrc, self._id)
+        return [User(self.api, elt['id']) for elt in jr['followers']]
+
+    @property
+    def tasks(self):
+        """Return a list of all Tasks objects associated with this tag"""
+        jr = self.api.get(self.resrc, '%s/tasks' % self._id)
+        return [Tag(self.api, elt['id']) for elt in jr['tasks']]
+
+    @name.setter
+    def name(self, name):
+        self.api.put(self.resrc, self._id, {'name': name})
+        self._name = name
+
+    @notes.setter
+    def notes(self, notes):
+        self.api.put(self.resrc, self._id, {'notes': notes})
+        self._notes = notes
+
+
+class Project(AsanaResource):
+    """Represents projects in Asana."""
+    def __init__(self,
+                 api,
+                 project_id=None,
+                 workspace_id=None,
+                 name=None,
+                 notes=None,
+                 archived=None): # Should archived be in the constructor? technically, but practically?
+
+        self.api = api
+        self.resrc = 'projects'
+
+        if project_id and workspace_id:
+            raise AsanaError('Bad Arguments')
+        elif project_id and (name or notes or archived):
+            raise AsanaError('Bad Arguments')
+        elif project_id:
+            jr = self.api.get(self.resrc, project_id)
+        elif workspace_id:
+            payload = {'workspace': workspace_id}
+            if name:
+                payload['name'] = name
+            if notes:
+                payload['notes'] = notes
+            if archived:
+                payload['archived'] = archived
+
+            jr = self.api.post(self.resrc, data=payload)
+
+        self._id = jr['id']
+        self._name = jr['name']
+        self._notes = jr['notes']
+        self._archived = jr['archived']
+        self._created_at = self._utcstr_to_datetime(jr['created_at'])
+        self._modified_at = self._utcstr_to_datetime(jr['modified_at'])
+        self._workspace = None
+
+    id = property(lambda self: self._id)
+    name = property(lambda self: self._name)
+    notes = property(lambda self: self._notes)
+    archived = property(lambda self: self._archived)
+    created_at = property(lambda self: self._created_at)
+    modified_at = property(lambda self: self._modified_at)
+
+    @property
+    def workspace(self):
+        """Workspace can never be changed, nor should we expect
+        it to change. Compute on the fly and cache for further calls"""
+        if not self._workspace:
+            jr = self.api.get(self.resrc, self._id)
+            self._workspace = Workspace(self.api, jr['workspace']['id'])
+        return self._workspace
+
+    @property
+    def tasks(self):
+        jr = self.api.get(self.resrc, '%s/tasks' % self._id)
+        return [Task(self.api, elt['id']) for elt in jr]
+
+    @property
+    def followers(self):
+        jr = self.api.get(self.resrc, self._id)
+        return [User(self.api, elt['id']) for elt in jr['followers']]
+
+    @property
+    def comments(self):
+        jr = self.api.get(self.resrc, '%s/stories' % self._id)
+        return [Story(self.api, elt['id']) for elt in jr]
+
+    @archived.setter
+    def archived(self, archived):
+        self.api.put(self.resrc, self._id, {'archived': archived})
+        self._archived = archived
+
+    @name.setter
+    def name(self, name):
+        self.api.put(self.resrc, self._id, {'name': name})
+        self._name = name
+
+    @notes.setter
+    def notes(self, notes):
+        self.api.put(self.resrc, self._id, {'notes': notes})
+        self._notes = notes
+
+    # TODO: results in 2 API calls. Constraining to 1 would require
+    #       verbose Story constructor or should this be a void method?
+    def add_comment(self, text):
+        jr = self.api.post(self.resrc, '%s/stories' % self._id,
+                           {'text': text})
+        return Story(self.api, jr['id'])
+
+
+class Story(AsanaResource):
+    """
+    Represents stories in Asana. Currently, a comment is the only
+    type of story supported by the API.
+    """
+    def __init__(self, api, story_id):
+        self.api = api
+        self.resrc = 'stories'
+        jr = self.api.get(self.resrc, story_id)
+        self._id = jr['id']
+        self._text = jr['text']
+        self._source = jr['source']
+        self._story_type = jr['type']
+        self._created_at = self._utcstr_to_datetime(jr['created_at'])
+
+    id = property(lambda self: self._id)
+    text = property(lambda self: self._text)
+    source = property(lambda self: self._source)
+    story_type = property(lambda self: self._story_type)
+    created_at = property(lambda self: self._created_at)
+
+    @property
+    def created_by(self):
+        jr = self.api.get(self.resrc, self._id)
+        return User(self.api, jr['created_by']['id'])
+
+    # TODO: what's a good interface for the caller?
+    #       Ideally, he doesn't want to have to test types...
+    @property
+    def target(self):
+        """Returns the object that this story is associated with. May be a
+        task or project.
         """
-        return self._asana_post('tasks/%d/addTag' % task_id, {'tag': tag_id})
+        pass
 
-    def rm_tag_task(self, task_id, tag_id):
-        """Remove a tag from a task.
+# api = Asana('2FRy4F9.Shtc7cEjm556j2g0Jxy0Q133', debug=True)
+# u = api.User(user_id=151953184167)
+# print u.name
+# workspace = api.workspaces[0]
+# print workspace.users
 
-        Args:
-            task_id (int)
-            tag_id (int)
-        """
-        return self._asana_post('tasks/%d/removeTag' % task_id,
-                                {'tag': tag_id})
 
-    def _set_task_payload(self, name=None, assignee_id=None, notes=None,
-                          assignee_status=None, completed=None, due_on=None,
-                          followers=None):
-        payload = {}
-        if name:
-            payload['name'] = name
+#User.users()
+#u.users()
+# ws = u.workspaces()
+# import pdb
+# pdb.set_trace()
+# # u.all_users()
+# w = Workspace(151953184165)
+# w.name = 'EECS'
 
-        if assignee_id:
-            payload['assignee'] = assignee_id
+# import pdb
+# pdb.set_trace()
+# task = Task(workspace_id=151953184165)
+# print task.id
 
-        if assignee_status in ['inbox', 'later', 'today', 'upcoming']:
-            payload['assignee_status'] = assignee_status
-        elif assignee_status:
-            raise Exception('Bad task assignee status')
-
-        if completed:
-            payload['completed'] = completed
-
-        if due_on:
-            try:
-                vd = time.strptime(due_on, '%Y-%m-%d')
-            except ValueError:
-                raise Exception('Bad task due date: %s' % due_on)
-
-        if followers:
-            for pos, person in enumerate(followers):
-                payload['followers[%d]' % pos] = person
-
-        if notes:
-            payload['notes'] = notes
-
-        return payload
-
-    #---- Tags ----#
-    def get_tags(self, workspace_id):
-        """Get the tags of a given workspace.
-
-        Args:
-            workspace_id (int)
-        """
-        return self._asana('workspaces/%d/tags' % workspace_id)
-
-    def get_tag(self, tag_id):
-        """Get a tag.
-
-        Args:
-            tag_id (int)
-        """
-        return self._asana_get('tags/%d' % tag_id)
-
-    def get_tag_tasks(self, tag_id):
-        """Get the tasks marked with a specific tag.
-
-        Args:
-            tag_id (int)
-        """
-        return self._asana('tags/%d/tasks' % tag_id)
-
-    def add_tag(self, workspace_id, name):
-        """Add a tag to a given workspace.
-
-        Args:
-            workspace_id (int)
-            name (str): name of tag
-        """
-        return self._asana_post('tags?workspace=%d&name=%s' % (workspace_id,
-                                                               name))
-
-    def update_tag(self, tag_id, name=None, notes=None):
-        """Update a tag with either a name or notes, or both. Note: if neither
-        name nor notes is provided, None will be returned.
-
-        Args:
-            tag_id (int)
-
-        Kwargs:
-            name (str): new tag name
-            notes (str): new tag notes
-        """
-        payload = {}
-        if name:
-            payload['name'] = name
-
-        if notes:
-            payload['notes'] = notes
-
-        if notes or name:
-            return self._asana_put('tags/%d' % tag_id, payload)
+# t = Tag(workspace_id=151953184165, name='yolo')
+# print t.id
+# print t.followers
+# print t.notes
+# t.notes = "lolol"
+# print t.notes
